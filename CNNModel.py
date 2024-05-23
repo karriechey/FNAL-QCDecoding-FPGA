@@ -276,6 +276,7 @@ class FullCNNModel(Model):
       include_last_kernel_dets = False,
       include_last_dets = True,
       has_nonuniform_response = False,
+      use_translated_kernels = False,
       KernelProcessor = CNNKernel,
       **kwargs
     ):
@@ -294,6 +295,7 @@ class FullCNNModel(Model):
     self.include_last_kernel_dets = include_last_kernel_dets
     self.include_last_dets = include_last_dets
     self.has_nonuniform_response = has_nonuniform_response
+    self.use_translated_kernels = use_translated_kernels
 
     self.cnn_kernels = []
     self.unique_kernel_types = get_unique_kernel_types(self.kernel_distance, code_distance)
@@ -331,8 +333,12 @@ class FullCNNModel(Model):
         )
       )
     
-    self.translation_coef_transform = Dense(self.nshifts)
-    self.translation_coef_transform_act = tf.keras.layers.Activation('sigmoid')
+    self.translation_coef_transform = None
+    self.translation_coef_transform_act = None
+    if self.extended_kernel_output and self.use_translated_kernels:
+      self.translation_coef_transform = Dense(self.nshifts)
+      self.translation_coef_transform_act = tf.keras.layers.Activation('sigmoid')
+
 
     dqubit_kernel_contribs = [ [] for _ in range(self.code_distance**2) ]
     for shifty in range(self.nshifts):
@@ -481,10 +487,12 @@ class FullCNNModel(Model):
       predictor_inputs.append(tf.cast(final_det_evts, tf.float32))
     predictor_inputs = tf.concat(predictor_inputs, axis=1)
 
-    translation_coefs_transformed = self.translation_coef_transform_act(self.translation_coef_transform(translation_coefs))
-    translation_coefs_transformed = tf.reshape(translation_coefs_transformed, (translation_coefs_transformed.shape[0], translation_coefs_transformed.shape[1], 1))
-    if self.extended_kernel_output:
-      translation_coefs_transformed = tf.repeat(translation_coefs_transformed, self.kernel_distance**2, axis=2)
+    translation_coefs_transformed = None
+    if self.extended_kernel_output and self.use_translated_kernels:
+      translation_coefs_transformed = self.translation_coef_transform_act(self.translation_coef_transform(translation_coefs))
+      translation_coefs_transformed = tf.reshape(translation_coefs_transformed, (translation_coefs_transformed.shape[0], translation_coefs_transformed.shape[1], 1))
+      if self.extended_kernel_output:
+        translation_coefs_transformed = tf.repeat(translation_coefs_transformed, self.kernel_distance**2, axis=2)
 
     for i, cnn_kernel in enumerate(self.cnn_kernels):
       kernel_parity = self.unique_kernel_types[i][0]
@@ -515,7 +523,7 @@ class FullCNNModel(Model):
         else:
           kernel_input = [ det_bits_kernel ]
         kernel_output = cnn_kernel(kernel_input)
-        if self.extended_kernel_output:
+        if self.extended_kernel_output and self.use_translated_kernels:
           shift_x = k % self.nshifts
           shift_y = k // self.nshifts
           k_shift = shift_y if self.obs_type=="ZL" else shift_x
