@@ -339,7 +339,6 @@ class FullCNNModel(Model):
       self.translation_coef_transform = Dense(self.nshifts)
       self.translation_coef_transform_act = tf.keras.layers.Activation('sigmoid')
 
-
     dqubit_kernel_contribs = [ [] for _ in range(self.code_distance**2) ]
     for shifty in range(self.nshifts):
       for shiftx in range(self.nshifts):
