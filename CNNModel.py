@@ -4,6 +4,156 @@ from tensorflow.keras.models import Model
 from circuit_partition import *
 
 
+class CNNEmbedder(Layer):
+  """
+  CNNEmbedder: Convert the input data into a quadratic form with trainable probability assignments.
+  The input needs to have dimensions (batch size, rounds>2, number of ancillas).
+  The output will have dimensions (batch size, rounds-2, ndims),
+  where ndims = n_ancillas if npol=1, and ndims = n_ancillas*(n_ancillas+1)/2 otherwise.
+  - If npol>1, there are only 3 possible values for the state of diagonal terms: -1, 0, 1.
+  For that reason, there is a simple map of -1 -> 0, 0 -> p, 1 -> 1, where p is the only probability parameter for training.
+  For non-diagonal terms, there are 6 possible values: -1x-1, -1x0, -1x1, 0x0, 0x1, and 1x1.
+  Their probability parameter map is -1x-1 -> 0, -1x0 -> p1*p2*p3*p4, -1x1 -> p1*p2*p3, 0x0 -> p1*p2, 0x1 -> p1, and 1x1 -> 1.
+  """
+  def __init__(
+      self,
+      distance,
+      rounds,
+      npol,
+      append_name="",
+      **kwargs
+    ):
+    super(CNNEmbedder, self).__init__(**kwargs)
+    self.distance = distance
+    self.rounds = rounds
+    self.npol = npol
+    self.n_ancillas = (self.distance**2 - 1)
+    self.embed_label = f"CNNEmbedder{append_name}_d{self.distance}_r{self.rounds}_npol{self.npol}"
+
+    self.state_tracker = None
+    self.delta_tracker = None
+
+    ndim1 = self.n_ancillas # Number of ancilla measurements
+    self.triangular_polmap = None
+    self.state_embedding_diag = None
+    self.state_embedding_nondiag = None
+    if self.npol>1:
+      nondiag = []
+      diag = []
+      for iy in range(ndim1):
+        for ix in range(iy, ndim1):
+          if ix!=iy:
+            nondiag.append(ix+iy*ndim1)
+          else:
+            diag.append(ix+iy*ndim1)
+      self.triangular_polmap = diag
+      self.triangular_polmap.extend(nondiag)
+      ndim1 = ndim1*(ndim1+1)//2      
+
+      self.embedding_params_diag = self.add_weight(
+        name=f"{self.embed_label}_embedded_params_diag",
+        shape=[ 1, self.n_ancillas ], # Only state = 0 needs a probability assignment; state = -1 -> 0, and state = 1 -> 1
+        initializer='zeros',
+        trainable=True
+      )
+      self.embedding_params_nondiag = self.add_weight(
+        name=f"{self.embed_label}_embedded_params_nondiag",
+        shape=[ 1, ndim1-self.n_ancillas, 4 ], # States -1x0, -1x1, 0x0, 0x1 need probability assignment; state = -1x-1 -> 0, and state = 1x1 -> 1
+        initializer='zeros',
+        trainable=True
+      )
+
+
+  def embed_pol_state(self, res_diag, res_nondiag, embedding_diag_tr, embedding_nondiag_tr):
+    # Diagonal terms
+    res_diag = tf.cast(res_diag, tf.float32)
+    res_diag = res_diag[:,:,0] + res_diag[:,:,1]*embedding_diag_tr
+    # Non-diagonal terms
+    res_nondiag = tf.cast(res_nondiag, tf.float32)
+    res_nondiag = res_nondiag[:,:,0] + tf.reduce_sum(res_nondiag[:,:,1:5]*embedding_nondiag_tr, axis=2)
+    res = tf.concat([res_diag, res_nondiag], axis=1)
+    return res
+
+
+  def transform_raw_state(self, x, embedding_diag_tr, embedding_nondiag_tr):
+    res = None
+    if self.npol==1:
+      res = tf.cast(x, tf.float32)
+    else:
+      xx = x + 3 # (-1, 0, 1) -> (2, 3, 4)
+      res = tf.matmul(
+          tf.cast(tf.reshape(xx, shape=(x.shape[0], x.shape[1], 1)), tf.int16),
+          tf.cast(tf.reshape(xx, shape=(x.shape[0], 1, x.shape[1])), tf.int16)
+      )
+      res = tf.gather(tf.reshape(res, shape=(x.shape[0], -1)), self.triangular_polmap, axis=1)
+      res_diag = res[:,0:self.n_ancillas]
+      res_nondiag = res[:,self.n_ancillas:]
+      # res has values (4, 8, 16 | 6, 9, 12) now
+      is16_diag = tf.equal(res_diag, 16)
+      is9_diag = tf.equal(res_diag, 9)
+      is16_nondiag = tf.equal(res_nondiag, 16)
+      is12_nondiag = tf.equal(res_nondiag, 12)
+      is9_nondiag = tf.equal(res_nondiag, 9)
+      is8_nondiag = tf.equal(res_nondiag, 8)
+      is6_nondiag = tf.equal(res_nondiag, 6)
+      res_diag = tf.stack([is16_diag, is9_diag], axis=2)
+      res_nondiag = tf.stack([is16_nondiag, is12_nondiag, is9_nondiag, is8_nondiag, is6_nondiag], axis=2)
+      res = self.embed_pol_state(res_diag, res_nondiag, embedding_diag_tr, embedding_nondiag_tr)
+    return res
+
+
+  def get_transformed_embedding_params(self, n):
+    if self.npol>1:
+      embedding_diag_tr = tf.repeat(tf.math.sigmoid(self.embedding_params_diag), n, axis=0)
+      f12 = tf.math.sigmoid(self.embedding_params_nondiag[:,:,0])
+      f9 = tf.math.sigmoid(self.embedding_params_nondiag[:,:,1])*f12
+      f8 = tf.math.sigmoid(self.embedding_params_nondiag[:,:,2])*f9
+      f6 = tf.math.sigmoid(self.embedding_params_nondiag[:,:,3])*f8
+      embedding_nondiag_tr = tf.repeat(tf.stack([f12, f9, f8, f6], axis=2), n, axis=0)
+      return embedding_diag_tr, embedding_nondiag_tr
+    return None, None
+
+
+  def get_raw_state(self, input):
+    data_err = input[:,0,:] + input[:,2,:] - input[:,0,:]*input[:,2,:]*2 # 001/011/110/100-like sequences
+    measure_err = input[:,1,:]*(1 - (input[:,0,:] + input[:,2,:])) + input[:,0,:]*input[:,2,:] # 010/101-like sequences
+
+    self.delta_tracker = self.delta_tracker*(1-measure_err*2)
+    self.state_tracker = tf.math.minimum(
+      tf.maximum(
+        self.state_tracker + self.delta_tracker*data_err,
+        -tf.ones_like(self.state_tracker)
+      ),
+      tf.ones_like(self.state_tracker)
+    )
+    self.delta_tracker = self.delta_tracker*(1-self.state_tracker*self.state_tracker*(1-measure_err)) - self.state_tracker*(1-measure_err)
+
+    return self.state_tracker
+  
+
+  def get_transformed_state(self, input, embedding_diag_tr, embedding_nondiag_tr):
+    res = []
+    for rr in range(self.rounds-2):
+      x = input[:,rr:rr+3,:]
+      x = self.get_raw_state(x)
+      x = self.transform_raw_state(x, embedding_diag_tr, embedding_nondiag_tr)
+      res.append(x)
+    res = tf.stack(res, axis=1) # (n, r-2, n_ancillas) dimensions
+    return res
+
+
+  def reset_tracker_states(self, n):
+    self.state_tracker = tf.constant([[ -1 for _ in range(self.n_ancillas) ] for _ in range(n)], dtype=tf.int8)
+    self.delta_tracker = tf.constant([[ 1 for _ in range(self.n_ancillas) ] for _ in range(n)], dtype=tf.int8)
+
+
+  def call(self, input):
+    n = input.shape[0]
+    self.reset_tracker_states(n)
+    embedding_diag_tr, embedding_nondiag_tr = self.get_transformed_embedding_params(n)
+    return self.get_transformed_state(input, embedding_diag_tr, embedding_nondiag_tr)
+
+
 class CNNKernel(Layer):
   def __init__(
       self,
