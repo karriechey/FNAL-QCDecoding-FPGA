@@ -1999,7 +1999,7 @@ class RCNNKernelCombiner(Layer):
     if self.has_nonuniform_response:
       self.nonuniform_response_adj = self.add_weight(
         name=f"NonUniformResponseAdj",
-        shape=[ 1, self.code_distance**2 ],
+        shape=[ 1, self.code_distance**2 ], # No reason to include a constraint on the sum of these coefficients.
         initializer='zeros',
         trainable=True
       )
@@ -2528,6 +2528,32 @@ class FullRCNNModel(Model):
       return_all_rounds = False,
       **kwargs
     ):
+    """
+    Initialize the FullRCNNModel object.
+    Arguments:
+    - obs_type: Type of observable, "ZL" or "XL".
+    - code_distance: Distance of the full surface code.
+    - kernel_distance: Distance of the kernel.
+    - rounds: Number of rounds to run the model.
+    - hidden_specs: List of hidden layer specifications.
+      Each element can be an integer or a dictionary.
+      If it is an integer, it is the number of nodes in a hidden layer.
+      If it is a dictionary,
+        it must have the key "n_nodes".
+        It may further have the keys
+        "is_activation" (default False),
+        "has_activation" (default True), and
+        "activation" (default "relu").
+    - npol: Whether we use a linear (=1) or quadratic (>1) relationship between spatial and temporal coordinates.
+    - stop_round: Round at which to stop the model. If None, -1, or rounds+1, the model will run for all rounds.
+      Valid values are 2<=stop_round<=rounds, and specifying anything in this range will disable the final state layer.
+    - has_nonuniform_response: Whether to include a non-uniform response adjustment.
+    - do_all_data_qubits: Whether to output all data qubit predictions over the full surface code.
+    - return_all_rounds: Whether to return predictions for all rounds.
+    - kwargs: Additional arguments to pass to the Model class.
+    Output:
+    - FullRCNNModel object, which inherits from the Model class.
+    """
     super(FullRCNNModel, self).__init__(**kwargs)
     self.obs_type = obs_type
     self.code_distance = code_distance
@@ -2609,7 +2635,39 @@ class FullRCNNModel(Model):
     self.decoded_outputs = []
 
 
+  def set_rounds(self, rounds):
+    """
+    Set the number of rounds for the model.
+    The purpose of this function is to be able to train the model on a smaller number of rounds
+    and then evaluate it on a data with more rounds.
+    That should work given that this is a recurrent architecture.
+    """
+    self.rounds = rounds
+    if self.rounds<2:
+      raise ValueError(f"Invalid rounds value {self.rounds}. Must be at least 2.")
+    if self.stop_round is not None:
+      if self.stop_round>self.rounds:
+        raise ValueError(f"Invalid stop_round value {self.stop_round}. Please also reset stop_round.")
+      else:
+        print(f"WARNING: stop_round={self.stop_round} might need to be reset.")
+
+
+  def set_stop_round(self, stop_round):
+    """
+    Set the stop round for the model.
+    If stop_round is None, the model will run for all rounds.
+    Otherwise, if it is in the range [2, rounds], the model will run up to that round.
+    Any valid integer value will disable the final state layer.
+    """
+    self.stop_round = stop_round
+    if self.stop_round is not None and (self.stop_round>self.rounds or self.stop_round<2):
+      raise ValueError(f"Invalid stop_round value {self.stop_round}. Must be within [2, {self.rounds}].")
+
+
   def decode_state(self, psi):
+    """
+    Decode the z-like state psi to a probability-like quantity.
+    """
     x = psi
     for ll in self.layers_decoder:
       x = ll(x)
@@ -2617,6 +2675,35 @@ class FullRCNNModel(Model):
 
 
   def call(self, all_inputs):
+    """
+    Run the model for all rounds and return the final prediction.
+    Let's denote the number of rounds with r, the code distance with d, and the kernel distance with k for the rest of the description.
+    Arguments:
+    - all_inputs: A list of input tensors.
+      * all_inputs[0] = det_bits[batch size : kernel stride size : r*(k^2-1)]
+        => Stabilizer measurements groupe by kernel strides.
+      * all_inputs[1] = det_evts[batch size : kernel stride size : (k^2-1)/2 + (r-1)*(k^2-1) + (k^2-1)/2]
+        => Detectors events grouped by kernel strides.
+           Note the way the last dimension is written.
+           While it is equivalent to r*(k^2-1), we highlight the order of special first and last detector events.
+           Note that in contrast to FullCNNModel, the last kernel detector events are from the actual final detectors of the full surface code,
+           not the reinterpretation of all_inputs[0] per kernel stride.
+    Output:
+    An array of probabilities of size [batch size, R], where R is
+    - 1 if do_all_data_qubits is False and return_all_rounds is False.
+      The returned value corresponds to the last round evaluated.
+    - d^2 if do_all_data_qubits is True and return_all_rounds is False.
+      The returned value corresponds to the last round evaluated.
+    - r if do_all_data_qubits is False, return_all_rounds is True, and stop_round is None.
+      Here, the correspondence between actual (r+1) states and the returned array
+      is the map (actual state index, array index) = {(1, 0), (2, 1)), ..., (r, r-1)}.
+    - r*d^2 if do_all_data_qubits is True and return_all_rounds is True, and stop_round is None.
+    - If stop_round has a value, the output is the same as the above cases, but with the last round now capped by stop_round.
+      Please note that specifying any valid 2<=stop_round<=r will avoid running the final state layer.
+      
+
+
+    """
     det_bits = all_inputs[0]
     # det_evts_w_final is a modified per-kernel det_evts array
     # that includes real final det_evts
