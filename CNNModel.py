@@ -1345,7 +1345,16 @@ class CNNKernelWithEmbedding(Layer):
 
 
 
-class RCNNInitialStateKernel(CNNKernelWithEmbedding):
+class RCNNEmbeddedKernelChooser:
+  kernel_t = CNNKernelWithEmbedding
+
+  @classmethod
+  def set_kernel_type(cls, kernel_t):
+    cls.kernel_t = kernel_t
+
+
+
+class RCNNInitialStateKernel(Layer):
   def __init__(
       self,
       kernel_parity,
@@ -1354,8 +1363,9 @@ class RCNNInitialStateKernel(CNNKernelWithEmbedding):
       use_exp_act = True,
       **kwargs
     ):
+    super(RCNNInitialStateKernel, self).__init__(**kwargs)
     self.rounds_first = 2
-    super(RCNNInitialStateKernel, self).__init__(
+    self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
       kernel_type = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
@@ -1373,166 +1383,8 @@ class RCNNInitialStateKernel(CNNKernelWithEmbedding):
     )
 
 
-
-class RCNNFinalStateKernel(Layer):
-  def __init__(
-      self,
-      kernel_parity,
-      obs_type, kernel_distance,
-      npol = 1,
-      use_exp_act = True,
-      **kwargs
-    ):
-    super(RCNNFinalStateKernel, self).__init__(**kwargs)
-    self.rounds_last = 2
-    self.embedded_kernel = CNNKernelWithEmbedding(
-      kernel_type = kernel_parity,
-      obs_type = obs_type,
-      kernel_distance = kernel_distance,
-      rounds = self.rounds_last,
-      npol = npol,
-      do_all_data_qubits = True,
-      include_det_bits = True,
-      include_det_evts = True,
-      n_remove_last_det_evts = 0,
-      discard_activation = True, # We are going to add the results directly, so no need for an activation just yet.
-      discard_bias = True,
-      ignore_first_det_evt_round = True,
-      use_exp_act = use_exp_act,
-      **kwargs
-    )
-    self.kernel_distance = kernel_distance
-    self.use_exp_act = use_exp_act
-    self.is_symmetric = self.embedded_kernel.is_symmetric
-
-    num_outputs = None
-    if self.is_symmetric:
-      num_outputs = (self.kernel_distance**2 + 1)//2
-    else:
-      num_outputs = self.kernel_distance**2
-
-    label = f"RCNNFinalStateKernel_{kernel_parity[0]}_{kernel_parity[1]}"
-
-    self.output_map = None
-    self.output_weight_map = None
-    if self.is_symmetric:
-      self.output_map = get_layer_output_map(self.kernel_distance, self.is_symmetric)
-      fmap = [ q for q in range(self.kernel_distance**2) ]
-      rmap = [ self.kernel_distance**2-q-1 for q in range(self.kernel_distance**2) ]
-      omap = []
-      for q in range(self.kernel_distance**2):
-        if q == self.output_map[q]:
-          omap.append([q, fmap])
-        else:
-          omap.append([q, rmap])
-      self.output_weight_map = omap
-
-    n_states = 3
-    n_evolve_params = 7
-    self.params_state_evolutions = self.add_weight(
-      name=f"{label}_w_state_evolutions",
-      shape=[ n_evolve_params, n_states, self.kernel_distance**2, num_outputs ],
-      initializer='zeros',
-      trainable=True
-    )
-    self.params_b = self.add_weight(
-      name=f"{label}_b",
-      shape=[ n_evolve_params, 1, num_outputs ],
-      initializer='zeros',
-      trainable=True
-    )
-
-    self.reverse_activation = tf.math.tanh
-    self.cpwgt_activation = tf.math.tanh
-
-
-  def get_mapped_weights(self, w, wmap):
-    if wmap is None:
-      return w
-    wgts_mapped = []
-    for mm in wmap:
-      jout = mm[0]
-      ilist = mm[1]
-      if ilist is None:
-        wgts_mapped.append(w[:,jout])
-      else:
-        wgts_mapped.append(tf.gather(w[:,jout], ilist))
-    return tf.stack(wgts_mapped, axis=1)
-
-
-  def get_mapped_bias(self, bias, n):
-    if bias is None or not self.is_symmetric or self.output_map is None:
-      return tf.repeat(bias, n, axis=0) if bias is not None else None
-    return tf.repeat(tf.gather(bias, self.output_map, axis=1), n, axis=0)
-
-
   def call(self, inputs):
-    # Input assumptions:
-    # * inputs[0]: z of the initial state, described by exp(z)/(1+exp(z)) = exp(z/2)/(exp(-z/2) + exp(z/2))
-    # * inputs[1]: z of the previous state, described by exp(z)/(1+exp(z)) = exp(z/2)/(exp(-z/2) + exp(z/2))
-    # * inputs[2]: det_bits of the last two rounds
-    # * inputs[3]: det_evts of last round + last det_evts that ACTUALLY correspond to the full circuit!
-    initial_state = inputs[0]
-    old_state = inputs[1]
-    #det_bits = inputs[2]
-    #det_evts = inputs[3]
-
-    n = old_state.shape[0]
-
-    final_z = self.embedded_kernel(inputs[2:])
-
-    iparam = 0
-
-    # c_reverse is in [-1, 1]
-    c_reverse = []
-    # f is supposed to be in [0, 1], f_z in (-inf, inf), f_log_1pexpz in [0, inf)
-    f_z = []
-    f_log_1pexpz = []
-    for _ in range(2):
-      reverse_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
-      reverse_arg_sum += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      reverse_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
-      c_reverse.append(self.reverse_activation(reverse_arg_sum + self.get_mapped_bias(self.params_b[iparam], n)))
-      iparam += 1
-
-      fwgt_z = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
-      fwgt_z += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      fwgt_z += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
-      fwgt_z += self.get_mapped_bias(self.params_b[iparam], n)
-      f_z.append(fwgt_z)
-      f_log_1pexpz.append(tf.math.log1p(tf.math.exp(fwgt_z)))
-      iparam += 1
-
-    neg_sum_f_log_1pexpz = -(f_log_1pexpz[0] + f_log_1pexpz[1])
-    
-    two_cos_phi = []
-    # two_cos_phi is in [-2, 2]
-    for _ in range(3):
-      cpwgt_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
-      cpwgt_arg_sum += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      cpwgt_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
-      two_cos_phi.append(2*self.cpwgt_activation(cpwgt_arg_sum + self.get_mapped_bias(self.params_b[iparam], n)))
-      iparam += 1
-
-    new_state_arg = final_z - f_log_1pexpz[0] + f_z[0]
-    new_state_part = tf.math.exp(new_state_arg)
-    old_state_arg = old_state*c_reverse[0] + neg_sum_f_log_1pexpz + f_z[1]
-    old_state_part = tf.math.exp(old_state_arg)
-    sqrt_state_prod_on = tf.math.exp((old_state_arg + new_state_arg)/2)
-    initial_state_arg = initial_state*c_reverse[1] + neg_sum_f_log_1pexpz
-    initial_state_part = tf.math.exp(initial_state_arg)
-    sqrt_state_prod_in = tf.math.exp((initial_state_arg + new_state_arg)/2)
-    sqrt_state_prod_io = tf.math.exp((initial_state_arg + old_state_arg)/2)
-    res = tf.clip_by_value(
-      new_state_part + old_state_part + initial_state_part
-      + two_cos_phi[0]*sqrt_state_prod_on
-      + two_cos_phi[1]*sqrt_state_prod_in
-      + two_cos_phi[2]*sqrt_state_prod_io
-      , 1e-9, 1e9)
-    if self.use_exp_act:
-      return res # This is already an exponential-like variable in [0, inf).
-    else:
-      return res/(1+res)
+    return self.embedded_kernel(inputs)
 
 
 
@@ -1565,7 +1417,7 @@ class RCNNRecurrenceBaseKernel(Layer):
       self.is_symmetric
     )
     # For detector events, we can let the CNNKernelWithEmbedding layer take care of the embedding and weight evaluation.
-    self.evaluator_det_evts = CNNKernelWithEmbedding(
+    self.evaluator_det_evts = RCNNEmbeddedKernelChooser.kernel_t(
       kernel_type = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
@@ -1756,6 +1608,168 @@ class RCNNRecurrenceKernel(RCNNRecurrenceBaseKernel):
 
 
 
+class RCNNFinalStateKernel(Layer):
+  def __init__(
+      self,
+      kernel_parity,
+      obs_type, kernel_distance,
+      npol = 1,
+      use_exp_act = True,
+      **kwargs
+    ):
+    super(RCNNFinalStateKernel, self).__init__(**kwargs)
+    self.rounds_last = 2
+    self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
+      kernel_type = kernel_parity,
+      obs_type = obs_type,
+      kernel_distance = kernel_distance,
+      rounds = self.rounds_last,
+      npol = npol,
+      do_all_data_qubits = True,
+      include_det_bits = True,
+      include_det_evts = True,
+      n_remove_last_det_evts = 0,
+      discard_activation = True, # We are going to add the results directly, so no need for an activation just yet.
+      discard_bias = True,
+      ignore_first_det_evt_round = True,
+      use_exp_act = use_exp_act,
+      **kwargs
+    )
+    self.kernel_distance = kernel_distance
+    self.use_exp_act = use_exp_act
+    self.is_symmetric = self.embedded_kernel.is_symmetric
+
+    num_outputs = None
+    if self.is_symmetric:
+      num_outputs = (self.kernel_distance**2 + 1)//2
+    else:
+      num_outputs = self.kernel_distance**2
+
+    label = f"RCNNFinalStateKernel_{kernel_parity[0]}_{kernel_parity[1]}"
+
+    self.output_map = None
+    self.output_weight_map = None
+    if self.is_symmetric:
+      self.output_map = get_layer_output_map(self.kernel_distance, self.is_symmetric)
+      fmap = [ q for q in range(self.kernel_distance**2) ]
+      rmap = [ self.kernel_distance**2-q-1 for q in range(self.kernel_distance**2) ]
+      omap = []
+      for q in range(self.kernel_distance**2):
+        if q == self.output_map[q]:
+          omap.append([q, fmap])
+        else:
+          omap.append([q, rmap])
+      self.output_weight_map = omap
+
+    n_states = 3
+    n_evolve_params = 7
+    self.params_state_evolutions = self.add_weight(
+      name=f"{label}_w_state_evolutions",
+      shape=[ n_evolve_params, n_states, self.kernel_distance**2, num_outputs ],
+      initializer='zeros',
+      trainable=True
+    )
+    self.params_b = self.add_weight(
+      name=f"{label}_b",
+      shape=[ n_evolve_params, 1, num_outputs ],
+      initializer='zeros',
+      trainable=True
+    )
+
+    self.reverse_activation = tf.math.tanh
+    self.cpwgt_activation = tf.math.tanh
+
+
+  def get_mapped_weights(self, w, wmap):
+    if wmap is None:
+      return w
+    wgts_mapped = []
+    for mm in wmap:
+      jout = mm[0]
+      ilist = mm[1]
+      if ilist is None:
+        wgts_mapped.append(w[:,jout])
+      else:
+        wgts_mapped.append(tf.gather(w[:,jout], ilist))
+    return tf.stack(wgts_mapped, axis=1)
+
+
+  def get_mapped_bias(self, bias, n):
+    if bias is None or not self.is_symmetric or self.output_map is None:
+      return tf.repeat(bias, n, axis=0) if bias is not None else None
+    return tf.repeat(tf.gather(bias, self.output_map, axis=1), n, axis=0)
+
+
+  def call(self, inputs):
+    # Input assumptions:
+    # * inputs[0]: z of the initial state, described by exp(z)/(1+exp(z)) = exp(z/2)/(exp(-z/2) + exp(z/2))
+    # * inputs[1]: z of the previous state, described by exp(z)/(1+exp(z)) = exp(z/2)/(exp(-z/2) + exp(z/2))
+    # * inputs[2]: det_bits of the last two rounds
+    # * inputs[3]: det_evts of last round + last det_evts that ACTUALLY correspond to the full circuit!
+    initial_state = inputs[0]
+    old_state = inputs[1]
+    #det_bits = inputs[2]
+    #det_evts = inputs[3]
+
+    n = old_state.shape[0]
+
+    final_z = self.embedded_kernel(inputs[2:])
+
+    iparam = 0
+
+    # c_reverse is in [-1, 1]
+    c_reverse = []
+    # f is supposed to be in [0, 1], f_z in (-inf, inf), f_log_1pexpz in [0, inf)
+    f_z = []
+    f_log_1pexpz = []
+    for _ in range(2):
+      reverse_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
+      reverse_arg_sum += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
+      reverse_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
+      c_reverse.append(self.reverse_activation(reverse_arg_sum + self.get_mapped_bias(self.params_b[iparam], n)))
+      iparam += 1
+
+      fwgt_z = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
+      fwgt_z += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
+      fwgt_z += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
+      fwgt_z += self.get_mapped_bias(self.params_b[iparam], n)
+      f_z.append(fwgt_z)
+      f_log_1pexpz.append(tf.math.log1p(tf.math.exp(fwgt_z)))
+      iparam += 1
+
+    neg_sum_f_log_1pexpz = -(f_log_1pexpz[0] + f_log_1pexpz[1])
+    
+    two_cos_phi = []
+    # two_cos_phi is in [-2, 2]
+    for _ in range(3):
+      cpwgt_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
+      cpwgt_arg_sum += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
+      cpwgt_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
+      two_cos_phi.append(2*self.cpwgt_activation(cpwgt_arg_sum + self.get_mapped_bias(self.params_b[iparam], n)))
+      iparam += 1
+
+    new_state_arg = final_z - f_log_1pexpz[0] + f_z[0]
+    new_state_part = tf.math.exp(new_state_arg)
+    old_state_arg = old_state*c_reverse[0] + neg_sum_f_log_1pexpz + f_z[1]
+    old_state_part = tf.math.exp(old_state_arg)
+    sqrt_state_prod_on = tf.math.exp((old_state_arg + new_state_arg)/2)
+    initial_state_arg = initial_state*c_reverse[1] + neg_sum_f_log_1pexpz
+    initial_state_part = tf.math.exp(initial_state_arg)
+    sqrt_state_prod_in = tf.math.exp((initial_state_arg + new_state_arg)/2)
+    sqrt_state_prod_io = tf.math.exp((initial_state_arg + old_state_arg)/2)
+    res = tf.clip_by_value(
+      new_state_part + old_state_part + initial_state_part
+      + two_cos_phi[0]*sqrt_state_prod_on
+      + two_cos_phi[1]*sqrt_state_prod_in
+      + two_cos_phi[2]*sqrt_state_prod_io
+      , 1e-9, 1e9)
+    if self.use_exp_act:
+      return res # This is already an exponential-like variable in [0, inf).
+    else:
+      return res/(1+res)
+
+
+
 class RCNNKernelCollector(Layer):
   def __init__(
       self,
@@ -1804,16 +1818,73 @@ class RCNNKernelCollector(Layer):
 
 
 
+class RCNNInitialStateKernelCollector(RCNNKernelCollector):
+  def __init__(
+      self,
+      obs_type, code_distance, kernel_distance,
+      npol = 1,
+      **kwargs
+    ):
+    super(RCNNInitialStateKernelCollector, self).__init__(
+      RCNNInitialStateKernel,
+      obs_type, code_distance, kernel_distance,
+      npol,
+      **kwargs
+    )
+class RCNNLeadInKernelCollector(RCNNKernelCollector):
+  def __init__(
+      self,
+      obs_type, code_distance, kernel_distance,
+      npol = 1,
+      **kwargs
+    ):
+    super(RCNNLeadInKernelCollector, self).__init__(
+      RCNNLeadInKernel,
+      obs_type, code_distance, kernel_distance,
+      npol,
+      **kwargs
+    )
+class RCNNRecurrenceKernelCollector(RCNNKernelCollector):
+  def __init__(
+      self,
+      obs_type, code_distance, kernel_distance,
+      npol = 1,
+      **kwargs
+    ):
+    super(RCNNRecurrenceKernelCollector, self).__init__(
+      RCNNRecurrenceKernel,
+      obs_type, code_distance, kernel_distance,
+      npol,
+      **kwargs
+    )
+class RCNNFinalStateKernelCollector(RCNNKernelCollector):
+  def __init__(
+      self,
+      obs_type, code_distance, kernel_distance,
+      npol = 1,
+      **kwargs
+    ):
+    super(RCNNFinalStateKernelCollector, self).__init__(
+      RCNNFinalStateKernel,
+      obs_type, code_distance, kernel_distance,
+      npol,
+      **kwargs
+    )
+
+
+
 class RCNNKernelCombiner(Layer):
   def __init__(
       self,
-      code_distance, kernel_distance,
       kernel_collector,
+      obs_type,
+      code_distance, kernel_distance,
+      npol = 1,
       has_nonuniform_response = False,
       **kwargs
     ):
     super(RCNNKernelCombiner, self).__init__(**kwargs)
-    self.kernel_collector = kernel_collector
+    self.kernel_collector = kernel_collector(obs_type, code_distance, kernel_distance, npol, **kwargs)
     self.code_distance = code_distance
     self.kernel_distance = kernel_distance
     self.kernel_half_distance = kernel_distance//2
@@ -1921,8 +1992,8 @@ class RCNNKernelCombiner(Layer):
         udkc.append(None)
     print(f"Total number of fractions: {total_nfracs}")
     print(f"Total number of phases: {total_nphases}")
-    self.frac_activation = tf.keras.activations.sigmoid # We actually need cos(phi), so there is an activation function
-    self.phase_activation = tf.keras.activations.tanh # We actually need cos(phi), so there is an activation function
+    self.frac_activation = tf.math.sigmoid # We need a value between 0 and 1.
+    self.phase_activation = tf.math.tanh # We actually need cos(phi).
 
     self.nonuniform_response_adj = None
     if self.has_nonuniform_response:
@@ -1935,7 +2006,7 @@ class RCNNKernelCombiner(Layer):
 
 
   def eval_final_data_qubit_pred_layer(self, data_qubit_final_preds):
-    # We assume data_qubit_final_preds is flat along axis=1
+    # We assume data_qubit_final_preds is flat along axis=1 and represents z values.
     if self.nonuniform_response_adj is not None:
       data_qubit_final_preds = data_qubit_final_preds + tf.repeat(self.nonuniform_response_adj, data_qubit_final_preds.shape[0], axis=0)
     return data_qubit_final_preds
@@ -1951,11 +2022,11 @@ class RCNNKernelCombiner(Layer):
       frac_params = udkc[2]
       phase_params = udkc[3]
       frac_values = None
-      phase_values = None
+      two_phase_values = None
       if frac_params is not None:
         frac_values = tf.clip_by_value(self.frac_activation(frac_params), 1e-6, 1.-1e-6)
       if phase_params is not None:
-        phase_values = self.phase_activation(phase_params)
+        two_phase_values = self.phase_activation(phase_params)*2
 
       for idq_idkqs in data_qubit_idxs:
         idq = idq_idkqs[0]
@@ -1995,9 +2066,9 @@ class RCNNKernelCombiner(Layer):
           iphase = 0
           for idx_i1 in range(n_sum_inputs):
             for idx_i2 in range(idx_i1+1, n_sum_inputs):
-              cos_phase = phase_values[iphase]
+              two_cos_phase = two_phase_values[iphase]
               iphase += 1
-              sum_kouts = sum_kouts + 2*tf.sqrt(sum_inputs[idx_i1]*sum_inputs[idx_i2])*cos_phase
+              sum_kouts = sum_kouts + tf.sqrt(sum_inputs[idx_i1]*sum_inputs[idx_i2])*two_cos_phase
         sum_kouts = tf.math.log(tf.clip_by_value(sum_kouts, 1e-9, 1e9))
         data_qubit_idxs_preds.append([idq, sum_kouts])
     data_qubit_idxs_preds.sort()
@@ -2007,6 +2078,77 @@ class RCNNKernelCombiner(Layer):
       axis=1
     )
     return self.eval_final_data_qubit_pred_layer(data_qubit_final_preds)
+
+
+
+class RCNNInitialStateKernelCombiner(RCNNKernelCombiner):
+  def __init__(
+      self,
+      obs_type,
+      code_distance, kernel_distance,
+      npol = 1,
+      has_nonuniform_response = False,
+      **kwargs
+    ):
+    super(RCNNInitialStateKernelCombiner, self).__init__(
+      RCNNInitialStateKernelCollector,
+      obs_type,
+      code_distance, kernel_distance,
+      npol,
+      has_nonuniform_response,
+      **kwargs
+    )
+class RCNNLeadInKernelCombiner(RCNNKernelCombiner):
+  def __init__(
+      self,
+      obs_type,
+      code_distance, kernel_distance,
+      npol = 1,
+      has_nonuniform_response = False,
+      **kwargs
+    ):
+    super(RCNNLeadInKernelCombiner, self).__init__(
+      RCNNLeadInKernelCollector,
+      obs_type,
+      code_distance, kernel_distance,
+      npol,
+      has_nonuniform_response,
+      **kwargs
+    )
+class RCNNRecurrenceKernelCombiner(RCNNKernelCombiner):
+  def __init__(
+      self,
+      obs_type,
+      code_distance, kernel_distance,
+      npol = 1,
+      has_nonuniform_response = False,
+      **kwargs
+    ):
+    super(RCNNRecurrenceKernelCombiner, self).__init__(
+      RCNNRecurrenceKernelCollector,
+      obs_type,
+      code_distance, kernel_distance,
+      npol,
+      has_nonuniform_response,
+      **kwargs
+    )
+class RCNNFinalStateKernelCombiner(RCNNKernelCombiner):
+  def __init__(
+      self,
+      obs_type,
+      code_distance, kernel_distance,
+      npol = 1,
+      has_nonuniform_response = False,
+      **kwargs
+    ):
+    super(RCNNFinalStateKernelCombiner, self).__init__(
+      RCNNFinalStateKernelCollector,
+      obs_type,
+      code_distance, kernel_distance,
+      npol,
+      has_nonuniform_response,
+      **kwargs
+    )
 
 
 
@@ -2371,3 +2513,160 @@ class FullCNNModel(Model):
         eval_dqubit_preds_layer = self.eval_final_data_qubit_pred_layer(data_qubit_final_preds)
         x = x + eval_dqubit_preds_layer
     return x
+
+
+
+class FullRCNNModel(Model):
+  def __init__(
+      self,
+      obs_type, code_distance, kernel_distance, rounds,
+      hidden_specs,
+      npol = 1,
+      stop_round = None, # One could pass None, -1, or rounds+1 to disable early stopping before the final round.
+      has_nonuniform_response = False,
+      do_all_data_qubits = False,
+      return_all_rounds = False,
+      **kwargs
+    ):
+    super(FullRCNNModel, self).__init__(**kwargs)
+    self.obs_type = obs_type
+    self.code_distance = code_distance
+    self.kernel_distance = kernel_distance
+    self.kernel_half_distance = kernel_distance//2
+    self.kernel_n_ancillas = kernel_distance**2-1
+    self.kernel_half_n_ancillas = self.kernel_n_ancillas//2
+    self.n_kernel_last_det_evts = (self.kernel_distance**2-1)//2
+    self.nshifts = self.code_distance - self.kernel_distance + 1
+    self.rounds = rounds
+    self.npol = npol
+    self.stop_round = stop_round
+    if self.stop_round is not None and (self.stop_round>self.rounds or self.stop_round<0):
+      self.stop_round = None
+    self.has_nonuniform_response = has_nonuniform_response
+    self.return_all_rounds = return_all_rounds
+
+    if self.rounds<2:
+      raise RuntimeError("The number of rounds must be at least 2 in the RCNN implementation.")
+    if self.stop_round is not None and self.stop_round<2:
+      raise RuntimeError("The stop round must be at least 2 in the RCNN implementation.")
+
+    self.layer_initial_state = RCNNInitialStateKernelCombiner(
+      obs_type = self.obs_type,
+      code_distance = self.code_distance,
+      kernel_distance = self.kernel_distance,
+      npol = self.npol,
+      has_nonuniform_response = self.has_nonuniform_response
+    )
+    self.layer_lead_in = None
+    self.layer_recurrence = None
+    self.layer_final_state = None
+    if self.rounds>2:
+      self.layer_lead_in = RCNNLeadInKernelCombiner(
+        obs_type = self.obs_type,
+        code_distance = self.code_distance,
+        kernel_distance = self.kernel_distance,
+        npol = self.npol,
+        has_nonuniform_response = self.has_nonuniform_response
+      )
+      if self.rounds>3:
+        self.layer_recurrence = RCNNRecurrenceKernelCombiner(
+          obs_type = self.obs_type,
+          code_distance = self.code_distance,
+          kernel_distance = self.kernel_distance,
+          npol = self.npol,
+          has_nonuniform_response = self.has_nonuniform_response
+        )
+    if self.stop_round is None:
+      self.layer_final_state = RCNNFinalStateKernelCombiner(
+        obs_type = self.obs_type,
+        code_distance = self.code_distance,
+        kernel_distance = self.kernel_distance,
+        npol = self.npol,
+        has_nonuniform_response = self.has_nonuniform_response
+      )
+
+    noutputs = 1 if not do_all_data_qubits else self.code_distance**2
+    self.layers_decoder = []
+    if hidden_specs is not None:
+      for hl in hidden_specs:
+        if type(hl)==int:
+          self.layers_decoder.append(Dense(hl, activation="relu"))
+        elif type(hl)==dict:
+          is_activation = hl["is_activation"] if "is_activation" in hl else False
+          if is_activation:
+            n_nodes = hl["n_nodes"] # Mandatory
+            has_activation = hl["has_activation"] if "has_activation" in hl else True
+            activation = None
+            if has_activation:
+              activation = hl["activation"] if "activation" in hl else "relu"
+            self.layers_decoder.append(Dense(n_nodes, activation=activation))
+    # Last layer needs to translate z-like quantities to probability-like quantities
+    if len(self.layers_decoder)>0:
+      self.layers_decoder.append(Dense(noutputs, activation="sigmoid"))
+    else:
+      self.layers_decoder.append(tf.keras.layers.Activation('sigmoid'))
+  
+    self.decoded_outputs = []
+
+
+  def decode_state(self, psi):
+    x = psi
+    for ll in self.layers_decoder:
+      x = ll(x)
+    return x
+
+
+  def call(self, all_inputs):
+    det_bits = all_inputs[0]
+    # det_evts_w_final is a modified per-kernel det_evts array
+    # that includes real final det_evts
+    # instead of kernel reinterpretations of per-kernel det_bits.
+    det_evts_w_final = all_inputs[1]
+    self.decoded_outputs = [] # Reset decoded output
+
+    psi_list = []
+    for r in range(self.rounds):
+      this_layer = None
+      this_bits = None
+      this_evts = None
+      prev_state = None
+      initial_state = None
+      if r==0:
+        this_layer = self.layer_initial_state
+        this_bits = det_bits[:,:,:self.kernel_n_ancillas*2]
+        this_evts = det_evts_w_final[:,:,:self.kernel_half_n_ancillas*3]
+      elif r<self.rounds-1:
+        this_layer = self.layer_lead_in if r==1 else self.layer_recurrence
+        this_bits = det_bits[:,:,self.kernel_n_ancillas*(r-1)*3:self.kernel_n_ancillas*r*3]
+        this_evts = det_evts_w_final[:,:,self.kernel_half_n_ancillas*((r-1)*4+1):self.kernel_half_n_ancillas*(r*4+1)]
+      else:
+        this_layer = self.layer_final_state
+        this_bits = det_bits[:,:,-self.kernel_n_ancillas*2:]
+        this_evts = det_evts_w_final[:,:,-self.kernel_half_n_ancillas*3:]
+      if r>0:
+        prev_state = psi_list[-1]
+        if r>1:
+          initial_state = psi_list[0]
+      
+      this_inputs = []
+      if initial_state is not None:
+        this_inputs.append(initial_state)
+      if prev_state is not None:
+        this_inputs.append(prev_state)
+      this_inputs.append(this_bits)
+      this_inputs.append(this_evts)
+
+      psi_list.append(this_layer(this_inputs))
+
+      if self.stop_round is not None and r==self.stop_round-2:
+        break
+
+    res = None
+    if self.return_all_rounds:
+      for psi in psi_list:
+        self.decoded_outputs.append(self.decode_state(psi))
+      res = tf.stack(self.decoded_outputs, axis=1)
+      res = tf.reshape(res, (res.shape[0], -1))
+    else:
+      res = self.decode_state(psi_list[-1])
+    return res
