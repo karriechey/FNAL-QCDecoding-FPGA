@@ -2700,9 +2700,6 @@ class FullRCNNModel(Model):
     - r*d^2 if do_all_data_qubits is True and return_all_rounds is True, and stop_round is None.
     - If stop_round has a value, the output is the same as the above cases, but with the last round now capped by stop_round.
       Please note that specifying any valid 2<=stop_round<=r will avoid running the final state layer.
-      
-
-
     """
     det_bits = all_inputs[0]
     # det_evts_w_final is a modified per-kernel det_evts array
