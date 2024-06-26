@@ -424,12 +424,12 @@ def get_detector_evts_perround_embedding_map(d, r, obs_type, npol, is_symmetric,
     idx_dlist = []
     idx_list = []
     inc_yrna = 0
-    for yr in range(rmax):
+    for yr in range(rmin, rmax):
       special_yr = (yr==0 or yr==r)
       nay = n_ancillas//2 if special_yr else n_ancillas
       for iiy in range(nay):
         inc_xrna = 0
-        for xr in range(rmax):
+        for xr in range(rmin, rmax):
           special_xr = (xr==0 or xr==r)
           nax = n_ancillas//2 if special_xr else n_ancillas
           for iix in range(nax):
@@ -1198,22 +1198,22 @@ class CNNKernelWithEmbedding(Layer):
     self.embedding_det_evts = None
     if self.include_det_bits:
       self.embedding_det_bits = DetectorBitStateEmbedder(
-        self.kernel_distance,
-        self.rounds,
-        self.is_symmetric,
-        self.npol,
-        self.ignore_diagonal_det_bits
+        distance = self.kernel_distance,
+        rounds = self.rounds,
+        is_symmetric = self.is_symmetric,
+        npol = self.npol,
+        ignore_diagonal = self.ignore_diagonal_det_bits
       )
     if self.include_det_evts:
       self.embedding_det_evts = DetectorEventStateEmbedder(
-        self.kernel_distance,
-        self.rounds_det_evts,
-        self.ignore_first_det_evt_round,
-        (self.n_remove_last_det_evts>0),
-        self.obs_type,
-        self.is_symmetric,
-        self.npol,
-        self.ignore_diagonal_det_evts
+        distance = self.kernel_distance,
+        rounds = self.rounds_det_evts,
+        ignore_first_round = self.ignore_first_det_evt_round,
+        ignore_last_round = (self.n_remove_last_det_evts>0),
+        obs_type = self.obs_type,
+        is_symmetric = self.is_symmetric,
+        npol = self.npol,
+        ignore_diagonal = self.ignore_diagonal_det_evts
       )
 
     num_outputs = 1
@@ -1457,10 +1457,11 @@ class RCNNRecurrenceBaseKernel(Layer):
       rmap = [ self.kernel_distance**2-q-1 for q in range(self.kernel_distance**2) ]
       omap = []
       for q in range(self.kernel_distance**2):
-        if q == self.output_map[q]:
-          omap.append([q, fmap])
+        qr = self.output_map[q]
+        if q == qr:
+          omap.append([qr, fmap])
         else:
-          omap.append([q, rmap])
+          omap.append([qr, rmap])
       self.output_weight_map = omap
 
     n_evolve_params = 3
@@ -1522,7 +1523,7 @@ class RCNNRecurrenceBaseKernel(Layer):
       old_state = inputs[1]
       det_bits = inputs[2]
       det_evts = inputs[3]
-
+    
     n = old_state.shape[0]
 
     triplet_state = tf.reshape(self.embedder_det_bits(tf.reshape(det_bits, shape=(n, self.rounds+1, -1))), shape=(n, -1))
@@ -1655,10 +1656,11 @@ class RCNNFinalStateKernel(Layer):
       rmap = [ self.kernel_distance**2-q-1 for q in range(self.kernel_distance**2) ]
       omap = []
       for q in range(self.kernel_distance**2):
-        if q == self.output_map[q]:
-          omap.append([q, fmap])
+        qr = self.output_map[q]
+        if q == qr:
+          omap.append([qr, fmap])
         else:
-          omap.append([q, rmap])
+          omap.append([qr, rmap])
       self.output_weight_map = omap
 
     n_states = 3
@@ -1803,17 +1805,14 @@ class RCNNKernelCollector(Layer):
 
 
   def call(self, all_inputs):
-    det_bits = all_inputs[0]
-    det_evts = all_inputs[1]
     kernel_outputs = [ None for _ in range(self.nshifts**2)]
     for i, cnn_kernel in enumerate(self.cnn_kernels):
       kernel_idxs = self.unique_kernel_types[i][1]
       for k in kernel_idxs:
-        kernel_input = None
-        det_bits_kernel = det_bits[:,k]
-        det_evts_kernel = det_evts[:,k]
-        kernel_input = [ det_bits_kernel, det_evts_kernel ]
-        kernel_outputs[k] = cnn_kernel(kernel_input) # Since we use the exponential activation, we can set the result directly.
+        kernel_inputs = []
+        for inputs in all_inputs:
+          kernel_inputs.append(inputs[:,k])
+        kernel_outputs[k] = cnn_kernel(kernel_inputs) # Since we use the exponential activation, we can set the result directly.
     return tf.stack(kernel_outputs, axis=0)
 
 
@@ -2576,6 +2575,17 @@ class FullRCNNModel(Model):
     if self.stop_round is not None and self.stop_round<2:
       raise RuntimeError("The stop round must be at least 2 in the RCNN implementation.")
 
+    self.state_shift_map = []
+    for shifty in range(self.nshifts):
+      for shiftx in range(self.nshifts):
+        this_shift_map = []
+        for iy in range(-self.kernel_half_distance,self.kernel_half_distance+1):
+          jy = self.kernel_half_distance + shifty + iy
+          for ix in range(-self.kernel_half_distance,self.kernel_half_distance+1):
+            jx = self.kernel_half_distance + shiftx + ix
+            this_shift_map.append(jx + jy*self.code_distance)
+        self.state_shift_map.append(this_shift_map)
+
     self.layer_initial_state = RCNNInitialStateKernelCombiner(
       obs_type = self.obs_type,
       code_distance = self.code_distance,
@@ -2674,6 +2684,16 @@ class FullRCNNModel(Model):
     return x
 
 
+  def regroup_state_by_kernel(self, psi):
+    """
+    Regroup the state psi by kernel strides.
+    """
+    res = []
+    for rmap in self.state_shift_map:
+      res.append(tf.gather(psi, rmap, axis=1))
+    return tf.stack(res, axis=1)
+
+
   def call(self, all_inputs):
     """
     Run the model for all rounds and return the final prediction.
@@ -2721,8 +2741,8 @@ class FullRCNNModel(Model):
         this_evts = det_evts_w_final[:,:,:self.kernel_half_n_ancillas*3]
       elif r<self.rounds-1:
         this_layer = self.layer_lead_in if r==1 else self.layer_recurrence
-        this_bits = det_bits[:,:,self.kernel_n_ancillas*(r-1)*3:self.kernel_n_ancillas*r*3]
-        this_evts = det_evts_w_final[:,:,self.kernel_half_n_ancillas*((r-1)*4+1):self.kernel_half_n_ancillas*(r*4+1)]
+        this_bits = det_bits[:,:,self.kernel_n_ancillas*(r-1):self.kernel_n_ancillas*(r+2)]
+        this_evts = det_evts_w_final[:,:,self.kernel_half_n_ancillas + self.kernel_n_ancillas*(r-1):self.kernel_half_n_ancillas + self.kernel_n_ancillas*(r+1)]
       else:
         this_layer = self.layer_final_state
         this_bits = det_bits[:,:,-self.kernel_n_ancillas*2:]
@@ -2734,9 +2754,9 @@ class FullRCNNModel(Model):
       
       this_inputs = []
       if initial_state is not None:
-        this_inputs.append(initial_state)
+        this_inputs.append(self.regroup_state_by_kernel(initial_state))
       if prev_state is not None:
-        this_inputs.append(prev_state)
+        this_inputs.append(self.regroup_state_by_kernel(prev_state))
       this_inputs.append(this_bits)
       this_inputs.append(this_evts)
 
