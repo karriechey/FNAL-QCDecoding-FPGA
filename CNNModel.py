@@ -2704,18 +2704,21 @@ class FullRCNNModel(Model):
       return all_inputs[0], all_inputs[1]
     else:
       binary_t, _, idx_t, _ = get_types(self.code_distance, self.rounds, self.kernel_distance)
+      use_TF = type(all_inputs[0])!=np.ndarray
       features_det_bits, _, _, _ = group_det_bits_kxk(
-        det_bits_dxd = (all_inputs[0] if type(all_inputs[0])==np.ndarray else tf.cast(all_inputs[0], tf.int16)),
+        det_bits_dxd = (all_inputs[0] if not use_TF else tf.cast(all_inputs[0], tf.int16)),
         d=self.code_distance, r=self.rounds, k=self.kernel_distance,
         use_rotated_z=(self.obs_type=="ZL"),
         data_bits_dxd=None,
-        binary_t=binary_t, idx_t=idx_t, make_translation_map=False
+        binary_t=binary_t,
+        idx_t=idx_t,
+        make_translation_map=False
       )
       features_det_evts = translate_det_bits_to_det_evts(
         self.obs_type,
         self.kernel_distance,
         features_det_bits,
-        (all_inputs[1][:, -self.n_last_det_evts:] if type(all_inputs[1])==np.ndarray else tf.cast(all_inputs[1][:, -self.n_last_det_evts:], tf.int16)),
+        (all_inputs[1][:, -self.n_last_det_evts:] if not use_TF else tf.cast(all_inputs[1][:, -self.n_last_det_evts:], tf.int16)),
       )
       features_det_bits = arrayops_swapaxes(features_det_bits, 0, 1)
       features_det_evts = arrayops_swapaxes(features_det_evts, 0, 1)
