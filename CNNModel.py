@@ -3,6 +3,8 @@ import tensorflow as tf
 from tensorflow.keras.layers import Layer, Dense
 from tensorflow.keras.models import Model
 from circuit_partition import *
+from types_cfg import *
+from utilities_arrayops import *
 
 
 def get_layer_input_maps(n_ancillas, npol, is_symmetric):
@@ -2560,6 +2562,9 @@ class FullRCNNModel(Model):
     self.kernel_half_distance = kernel_distance//2
     self.kernel_n_ancillas = kernel_distance**2-1
     self.kernel_half_n_ancillas = self.kernel_n_ancillas//2
+    self.n_last_det_evts = (self.code_distance**2-1)//2
+    if self.obs_type=="XL":
+      self.n_last_det_evts = self.code_distance**2 - 1 - self.n_last_det_evts
     self.n_kernel_last_det_evts = (self.kernel_distance**2-1)//2
     self.nshifts = self.code_distance - self.kernel_distance + 1
     self.rounds = rounds
@@ -2693,13 +2698,32 @@ class FullRCNNModel(Model):
       res.append(tf.gather(psi, rmap, axis=1))
     return tf.stack(res, axis=1)
 
+  
+  def get_grouped_det_bits_and_evts_w_final(self, all_inputs):
+    if len(all_inputs[0].shape)==3:
+      return all_inputs[0], all_inputs[1]
+    else:
+      binary_t, _, idx_t, _ = get_types(self.code_distance, self.rounds, self.kernel_distance)
+      features_det_bits, _, _, _ = group_det_bits_kxk(
+        det_bits_dxd=all_inputs[0],
+        d=self.code_distance, r=self.rounds, k=self.kernel_distance,
+        use_rotated_z=(self.obs_type=="ZL"),
+        data_bits_dxd=None,
+        binary_t=binary_t, idx_t=idx_t, make_translation_map=False
+      )
+      features_det_evts = translate_det_bits_to_det_evts(self.obs_type, self.kernel_distance, features_det_bits, all_inputs[1][:, -self.n_last_det_evts:])
+      features_det_bits = arrayops_swapaxes(features_det_bits, 0, 1)
+      features_det_evts = arrayops_swapaxes(features_det_evts, 0, 1)
+      return features_det_bits, features_det_evts
+
 
   def call(self, all_inputs):
     """
     Run the model for all rounds and return the final prediction.
     Let's denote the number of rounds with r, the code distance with d, and the kernel distance with k for the rest of the description.
     Arguments:
-    - all_inputs: A list of input tensors.
+    - all_inputs: A list of input tensors. There are two conventions.
+      1) Inputs preprocessed for kernel groupings:
       * all_inputs[0] = det_bits[batch size : kernel stride size : r*(k^2-1)]
         => Stabilizer measurements groupe by kernel strides.
       * all_inputs[1] = det_evts[batch size : kernel stride size : (k^2-1)/2 + (r-1)*(k^2-1) + (k^2-1)/2]
@@ -2708,6 +2732,11 @@ class FullRCNNModel(Model):
            While it is equivalent to r*(k^2-1), we highlight the order of special first and last detector events.
            Note that in contrast to FullCNNModel, the last kernel detector events are from the actual final detectors of the full surface code,
            not the reinterpretation of all_inputs[0] per kernel stride.
+      2) Inputs that require kernel groupings:
+      * all_inputs[0] = det_bits[batch size : r*(d^2-1)]
+        => All stabilizer measurements.
+      * all_inputs[1] = det_evts[batch size : r*(d^2-1)]
+        => All detector events.
     Output:
     An array of probabilities of size [batch size, R], where R is
     - 1 if do_all_data_qubits is False and return_all_rounds is False.
@@ -2721,12 +2750,13 @@ class FullRCNNModel(Model):
     - If stop_round has a value, the output is the same as the above cases, but with the last round now capped by stop_round.
       Please note that specifying any valid 2<=stop_round<=r will avoid running the final state layer.
     """
-    det_bits = all_inputs[0]
     # det_evts_w_final is a modified per-kernel det_evts array
     # that includes real final det_evts
     # instead of kernel reinterpretations of per-kernel det_bits.
-    det_evts_w_final = all_inputs[1]
-    self.decoded_outputs = [] # Reset decoded output
+    det_bits, det_evts_w_final = self.get_grouped_det_bits_and_evts_w_final(all_inputs)
+
+    # Reset decoded output
+    self.decoded_outputs = []
 
     psi_list = []
     for r in range(self.rounds):
