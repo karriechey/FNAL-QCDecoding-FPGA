@@ -926,7 +926,7 @@ class TripletStateProbEmbedder(Layer):
 
     self.delta_tracker = self.delta_tracker*(1-measure_err*2)
     self.state_tracker = tf.math.minimum(
-      tf.maximum(
+      tf.math.maximum(
         self.state_tracker + self.delta_tracker*data_err,
         -tf.ones_like(self.state_tracker)
       ),
