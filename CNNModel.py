@@ -1612,6 +1612,13 @@ class RCNNRecurrenceKernel(RCNNRecurrenceBaseKernel):
 
 
 class RCNNFinalStateKernel(Layer):
+  ignore_initial_state = False
+
+  @staticmethod
+  def set_ignore_initial_state(flag):
+    RCNNFinalStateKernel.ignore_initial_state = flag
+
+    
   def __init__(
       self,
       kernel_parity,
@@ -1665,7 +1672,7 @@ class RCNNFinalStateKernel(Layer):
           omap.append([qr, rmap])
       self.output_weight_map = omap
 
-    n_states = 3
+    n_states = 3 if not RCNNFinalStateKernel.ignore_initial_state else 2
     n_evolve_params = 7
     self.params_state_evolutions = self.add_weight(
       name=f"{label}_w_state_evolutions",
@@ -1710,14 +1717,17 @@ class RCNNFinalStateKernel(Layer):
     # * inputs[1]: z of the previous state, described by exp(z)/(1+exp(z)) = exp(z/2)/(exp(-z/2) + exp(z/2))
     # * inputs[2]: det_bits of the last two rounds
     # * inputs[3]: det_evts of last round + last det_evts that ACTUALLY correspond to the full circuit!
-    initial_state = inputs[0]
-    old_state = inputs[1]
+    iin = 0
+    if not RCNNFinalStateKernel.ignore_initial_state:
+      initial_state = inputs[iin]
+      iin = iin + 1
+    old_state = inputs[iin]; iin = iin + 1
     #det_bits = inputs[2]
     #det_evts = inputs[3]
 
     n = old_state.shape[0]
 
-    final_z = self.embedded_kernel(inputs[2:])
+    final_z = self.embedded_kernel(inputs[iin:])
 
     iparam = 0
 
@@ -1729,13 +1739,15 @@ class RCNNFinalStateKernel(Layer):
     for _ in range(2):
       reverse_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
       reverse_arg_sum += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      reverse_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
+      if not RCNNFinalStateKernel.ignore_initial_state:
+        reverse_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
       c_reverse.append(self.reverse_activation(reverse_arg_sum + self.get_mapped_bias(self.params_b[iparam], n)))
       iparam += 1
 
       fwgt_z = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
       fwgt_z += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      fwgt_z += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
+      if not RCNNFinalStateKernel.ignore_initial_state:
+        fwgt_z += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
       fwgt_z += self.get_mapped_bias(self.params_b[iparam], n)
       f_z.append(fwgt_z)
       f_log_1pexpz.append(tf.math.log1p(tf.math.exp(fwgt_z)))
@@ -1748,7 +1760,8 @@ class RCNNFinalStateKernel(Layer):
     for _ in range(3):
       cpwgt_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
       cpwgt_arg_sum += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      cpwgt_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
+      if not RCNNFinalStateKernel.ignore_initial_state:
+        cpwgt_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
       two_cos_phi.append(2*self.cpwgt_activation(cpwgt_arg_sum + self.get_mapped_bias(self.params_b[iparam], n)))
       iparam += 1
 
@@ -1757,16 +1770,15 @@ class RCNNFinalStateKernel(Layer):
     old_state_arg = old_state*c_reverse[0] + neg_sum_f_log_1pexpz + f_z[1]
     old_state_part = tf.math.exp(old_state_arg)
     sqrt_state_prod_on = tf.math.exp((old_state_arg + new_state_arg)/2)
-    initial_state_arg = initial_state*c_reverse[1] + neg_sum_f_log_1pexpz
-    initial_state_part = tf.math.exp(initial_state_arg)
-    sqrt_state_prod_in = tf.math.exp((initial_state_arg + new_state_arg)/2)
-    sqrt_state_prod_io = tf.math.exp((initial_state_arg + old_state_arg)/2)
-    res = tf.clip_by_value(
-      new_state_part + old_state_part + initial_state_part
-      + two_cos_phi[0]*sqrt_state_prod_on
-      + two_cos_phi[1]*sqrt_state_prod_in
-      + two_cos_phi[2]*sqrt_state_prod_io
-      , 1e-9, 1e9)
+    res = new_state_part + old_state_part + two_cos_phi[0]*sqrt_state_prod_on
+    if not RCNNFinalStateKernel.ignore_initial_state:
+      initial_state_arg = initial_state*c_reverse[1] + neg_sum_f_log_1pexpz
+      initial_state_part = tf.math.exp(initial_state_arg)
+      sqrt_state_prod_in = tf.math.exp((initial_state_arg + new_state_arg)/2)
+      sqrt_state_prod_io = tf.math.exp((initial_state_arg + old_state_arg)/2)
+      res = res + initial_state_part + two_cos_phi[1]*sqrt_state_prod_in + two_cos_phi[2]*sqrt_state_prod_io
+
+    res = tf.clip_by_value(res, 1e-9, 1e9)
     if self.use_exp_act:
       return res # This is already an exponential-like variable in [0, inf).
     else:
@@ -2574,6 +2586,8 @@ class FullRCNNModel(Model):
       self.stop_round = None
     self.has_nonuniform_response = has_nonuniform_response
     self.return_all_rounds = return_all_rounds
+
+    RCNNFinalStateKernel.set_ignore_initial_state(self.rounds<=2)
 
     if self.rounds<2:
       raise RuntimeError("The number of rounds must be at least 2 in the RCNN implementation.")
