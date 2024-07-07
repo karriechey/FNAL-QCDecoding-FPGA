@@ -1399,7 +1399,7 @@ class CNNStateCorrelator(Layer):
 
     self.n_fracs = self.rounds-1
     self.n_phases = self.rounds*(self.rounds-1)//2
-    n_evolve_params = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + (1 if CNNStateCorrelator.new_state_reversability else 0) + self.n_phases
+    n_evolve_params = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + self.n_phases
     self.params_state_evolutions = self.add_weight(
       name=f"{label}_w_state_evolutions",
       shape=[ n_evolve_params, self.rounds, num_inputs, num_outputs ],
@@ -1412,6 +1412,19 @@ class CNNStateCorrelator(Layer):
       initializer='zeros',
       trainable=True
     )
+    if CNNStateCorrelator.new_state_reversability:
+      self.params_new_state_reverse = self.add_weight(
+        name=f"{label}_w_new_state_reverse",
+        shape=[ self.rounds, num_inputs, num_outputs ],
+        initializer='zeros',
+        trainable=True
+      )
+      self.params_new_state_reverse_b = self.add_weight(
+        name=f"{label}_b",
+        shape=[ 1, num_outputs ],
+        initializer='ones',
+        trainable=True
+      )
 
     self.reverse_activation = tf.math.tanh
     self.cpwgt_activation = tf.math.tanh
@@ -1463,16 +1476,16 @@ class CNNStateCorrelator(Layer):
         f_z.append(fwgt_z)
     
     idx_offset = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2)
+
     c_reverse_new_state = None
     if CNNStateCorrelator.new_state_reversability:
       for r, input in enumerate(inputs):
-        reverse_arg_mul = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[idx_offset][r], self.output_weight_map))
+        reverse_arg_mul = tf.matmul(input, self.get_mapped_weights(self.params_new_state_reverse[r], self.output_weight_map))
         if c_reverse_new_state is None:
           c_reverse_new_state = reverse_arg_mul
         else:
           c_reverse_new_state += reverse_arg_mul
-      c_reverse_new_state = self.reverse_activation(c_reverse_new_state + self.get_mapped_bias(self.params_b[idx_offset], n))
-      idx_offset += 1
+      c_reverse_new_state = self.reverse_activation(c_reverse_new_state + self.get_mapped_bias(self.params_new_state_reverse_b, n))
     
     two_cos_phi = []
     # two_cos_phi is in [-2, 2]
