@@ -1471,15 +1471,15 @@ class CNNStateCorrelatorWeightInitializer(Initializer):
       raise ValueError(f"Expected shape {self.shape_exp}, but received shape {shape}")
     # Initialize weights for state reversion for old states
     res = np.zeros(shape, dtype=convert_to_npdtype(dtype))
-    for iparam in range(self.n_fracs):
-      for r in range(self.rounds):
-        res[iparam,r,:,:] = (self.n_fracs if iparam+1==r else -1)
+    #for iparam in range(self.n_fracs):
+    #  for r in range(self.rounds):
+    #    res[iparam,r,:,:] = (self.n_fracs if iparam+1==r else -1)
     # No need to initialize fraction and phase weights - they should already be 0.
-    idx_offset = self.n_fracs if self.disable_fractions else 2*self.n_fracs
-    if self.new_state_reversability:
-      res[idx_offset,0,:,:] = self.n_fracs
-      res[idx_offset,1:,:,:] = -1
-    res = res*self.scale
+    #idx_offset = self.n_fracs if self.disable_fractions else 2*self.n_fracs
+    #if self.new_state_reversability:
+    #  res[idx_offset,0,:,:] = self.n_fracs
+    #  res[idx_offset,1:,:,:] = -1
+    #res = res*self.scale
     return tf.convert_to_tensor(res, dtype=dtype)
 
 
@@ -1532,10 +1532,12 @@ class CNNStateCorrelatorBiasInitializer(Initializer):
       raise ValueError(f"Expected shape {self.shape_exp}, but received shape {shape}")
     # Initialize weights for state reversion for old states
     res = np.zeros(shape, dtype=convert_to_npdtype(dtype))
-    res[:self.n_fracs,:,:] = 2
+    #res[:self.n_fracs,:,:] = 2
+    res[:self.n_fracs,:,:] = 1
     idx_offset = self.n_fracs if self.disable_fractions else 2*self.n_fracs
     if self.new_state_reversability:
-      res[idx_offset,:,:] = 2
+      #res[idx_offset,:,:] = 2
+      res[idx_offset,:,:] = 1
     res = res*self.scale
     return tf.convert_to_tensor(res, dtype=dtype)
 
