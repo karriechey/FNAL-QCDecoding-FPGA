@@ -1489,7 +1489,7 @@ class CNNStateCorrelator(Layer):
       else:
         res += state_part
       for jst in range(ist+1, self.rounds):
-        res += tf.math.exp((iarg + state_args[jst])/2)*two_cos_phi[jst + ist*self.rounds - (ist+1)*ist//2]
+        res += tf.math.exp((iarg + state_args[jst])/2)*two_cos_phi[jst + ist*(self.rounds-1) - (ist+1)*ist//2 - 1]
 
     res = tf.clip_by_value(res, 1e-9, 1e9)
     if self.use_exp_act:
