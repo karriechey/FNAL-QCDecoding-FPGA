@@ -1347,6 +1347,156 @@ class CNNKernelWithEmbedding(Layer):
 
 
 
+class CNNStateCorrelator(Layer):
+  def __init__(
+    self,
+    distance,
+    rounds,
+    is_symmetric,
+    npol = 1,
+    use_exp_act = True,
+    **kwargs
+  ):
+    super(CNNStateCorrelator, self).__init__(**kwargs)
+    self.distance = distance
+    self.rounds = rounds
+    self.npol = npol
+    self.is_symmetric = is_symmetric
+    self.use_exp_act = use_exp_act
+
+    label = f"CNNStateCorrelator_d{self.distance}_r{self.rounds}"
+
+    num_inputs = self.distance**2
+    num_outputs = self.distance**2 if not self.is_symmetric else (self.distance**2 + 1)//2
+    self.output_map = None
+    self.output_weight_map = None
+    if self.is_symmetric:
+      self.output_map = get_layer_output_map(self.distance, self.is_symmetric)
+      fmap = [ q for q in range(num_inputs) ]
+      rmap = [ num_inputs-q-1 for q in range(num_inputs) ]
+      omap = []
+      for q in range(self.distance**2):
+        qr = self.output_map[q]
+        if q == qr:
+          omap.append([qr, fmap])
+        else:
+          omap.append([qr, rmap])
+      self.output_weight_map = omap
+
+    self.n_fracs = self.rounds-1
+    self.n_phases = self.rounds*(self.rounds-1)//2
+    n_evolve_params = 2*self.n_fracs + self.n_phases
+    self.params_state_evolutions = self.add_weight(
+      name=f"{label}_w_state_evolutions",
+      shape=[ n_evolve_params, self.rounds, num_inputs, num_outputs ],
+      initializer='zeros',
+      trainable=True
+    )
+    self.params_b = self.add_weight(
+      name=f"{label}_b",
+      shape=[ n_evolve_params, 1, num_outputs ],
+      initializer='zeros',
+      trainable=True
+    )
+
+    self.reverse_activation = tf.math.tanh
+    self.cpwgt_activation = tf.math.tanh
+
+  
+  def get_mapped_weights(self, w, wmap):
+    if wmap is None:
+      return w
+    wgts_mapped = []
+    for mm in wmap:
+      jout = mm[0]
+      ilist = mm[1]
+      if ilist is None:
+        wgts_mapped.append(w[:,jout])
+      else:
+        wgts_mapped.append(tf.gather(w[:,jout], ilist))
+    return tf.stack(wgts_mapped, axis=1)
+
+
+  def get_mapped_bias(self, bias, n):
+    if bias is None or not self.is_symmetric or self.output_map is None:
+      return tf.repeat(bias, n, axis=0) if bias is not None else None
+    return tf.repeat(tf.gather(bias, self.output_map, axis=1), n, axis=0)
+  
+
+  def call(self, inputs):
+    n = inputs[0].shape[0]
+
+    # c_reverse is in [-1, 1]
+    c_reverse = []
+    # f is supposed to be in [0, 1], f_z in (-inf, inf), f_log_1pexpz in [0, inf)
+    f_z = []
+    for ifrac in range(self.n_fracs):
+      reverse_arg_sum = None
+      fwgt_z = None
+      for r, input in enumerate(inputs):
+        if reverse_arg_sum is None:
+          reverse_arg_sum = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac][r], self.output_weight_map))
+          fwgt_z = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs][r], self.output_weight_map))
+        else:
+          reverse_arg_sum += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac][r], self.output_weight_map))
+          fwgt_z += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs][r], self.output_weight_map))
+      reverse_arg_sum = reverse_arg_sum + self.get_mapped_bias(self.params_b[ifrac], n)
+      fwgt_z = fwgt_z + self.get_mapped_bias(self.params_b[ifrac+self.n_fracs], n)
+      c_reverse.append(self.reverse_activation(reverse_arg_sum))
+      f_z.append(fwgt_z)
+    
+    two_cos_phi = []
+    # two_cos_phi is in [-2, 2]
+    for iph in range(self.n_phases):
+      cpwgt_arg_sum = None
+      jph = 2*self.n_fracs + iph
+      for r, input in enumerate(inputs):
+        if cpwgt_arg_sum is None:
+          cpwgt_arg_sum = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[jph][r], self.output_weight_map))
+        else:
+          cpwgt_arg_sum += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[jph][r], self.output_weight_map))
+      two_cos_phi.append(2*self.cpwgt_activation(cpwgt_arg_sum + self.get_mapped_bias(self.params_b[jph], n)))
+
+    f_log_1pexpz = [ tf.math.log1p(tf.math.exp(fz)) for fz in f_z ]
+
+    f_denom = None
+    state_args = []
+    for ist, state in enumerate(inputs):
+      if f_denom is None:
+        f_denom = -f_log_1pexpz[ist]
+      else:
+        f_denom -= f_log_1pexpz[ist]
+      fwgt = None
+      if ist<self.rounds-1:
+        fwgt = f_z[ist] + f_denom
+      else:
+        fwgt = f_denom
+      state_arg = None
+      if ist==0:
+        state_arg = state + fwgt
+      else:
+        state_arg = state*c_reverse[ist-1] + fwgt
+      state_args.append(state_arg)
+
+    res = None
+    for ist in range(self.rounds):
+      iarg = state_args[ist]
+      state_part = tf.math.exp(iarg)
+      if res is None:
+        res = state_part
+      else:
+        res += state_part
+      for jst in range(ist+1, self.rounds):
+        res += tf.math.exp((iarg + state_args[jst])/2)*two_cos_phi[jst + ist*self.rounds - (ist+1)*ist//2]
+
+    res = tf.clip_by_value(res, 1e-9, 1e9)
+    if self.use_exp_act:
+      return res # This is already an exponential-like variable in [0, inf).
+    else:
+      return res/(1+res)
+
+
+
 class RCNNEmbeddedKernelChooser:
   kernel_t = CNNKernelWithEmbedding
 
@@ -1451,38 +1601,14 @@ class RCNNRecurrenceBaseKernel(Layer):
       trainable=True
     )
 
-    self.output_map = None
-    self.output_weight_map = None
-    if self.is_symmetric:
-      self.output_map = get_layer_output_map(self.kernel_distance, self.is_symmetric)
-      fmap = [ q for q in range(self.kernel_distance**2) ]
-      rmap = [ self.kernel_distance**2-q-1 for q in range(self.kernel_distance**2) ]
-      omap = []
-      for q in range(self.kernel_distance**2):
-        qr = self.output_map[q]
-        if q == qr:
-          omap.append([qr, fmap])
-        else:
-          omap.append([qr, rmap])
-      self.output_weight_map = omap
-
-    n_evolve_params = 3
-    n_states = 3 if self.include_initial_state else 2
-    self.params_state_evolutions = self.add_weight(
-      name=f"{label}_w_state_evolutions",
-      shape=[ n_evolve_params, n_states, self.kernel_distance**2, num_outputs ],
-      initializer='zeros',
-      trainable=True
+    self.n_states = 3 if self.include_initial_state else 2
+    self.state_correlator = CNNStateCorrelator(
+      distance = self.kernel_distance,
+      rounds = self.n_states,
+      is_symmetric = self.is_symmetric,
+      npol = self.npol,
+      use_exp_act = self.use_exp_act
     )
-    self.params_b = self.add_weight(
-      name=f"{label}_params_b",
-      shape=[ n_evolve_params, 1, num_outputs ],
-      initializer='zeros',
-      trainable=True
-    )
-
-    self.reverse_activation = tf.math.tanh
-    self.cpwgt_activation = tf.math.tanh
 
 
   def get_mapped_weights(self, w, wmap):
@@ -1532,38 +1658,10 @@ class RCNNRecurrenceBaseKernel(Layer):
     recurrence_z = tf.matmul(triplet_state*2-1, self.get_mapped_weights(self.kernel_weights_triplet_states, self.kernel_weights_triplet_states_swap_map))
     recurrence_z += self.evaluator_det_evts(det_evts)
 
-    reverse_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[0][0], self.output_weight_map))
-    reverse_arg_sum += tf.matmul(recurrence_z, self.get_mapped_weights(self.params_state_evolutions[0][1], self.output_weight_map))
+    states = [ recurrence_z, old_state ]
     if self.include_initial_state:
-      reverse_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[0][2], self.output_weight_map))
-    c_reverse = self.reverse_activation(reverse_arg_sum + self.get_mapped_bias(self.params_b[0], n))
-    # c_reverse is in [-1, 1]
-
-    fwgt_z = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[1][0], self.output_weight_map))
-    fwgt_z += tf.matmul(recurrence_z, self.get_mapped_weights(self.params_state_evolutions[1][1], self.output_weight_map))
-    if self.include_initial_state:
-      fwgt_z += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[1][2], self.output_weight_map))
-    fwgt_z += self.get_mapped_bias(self.params_b[1], n)
-    fwgt_log_1pexpz = tf.math.log1p(tf.math.exp(fwgt_z))
-    # fwgt is supposed to be in [0, 1], fwgt_z in (-inf, inf), fwgt_log_1pexpz in [0, inf)
-
-    cpwgt_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[2][0], self.output_weight_map))
-    cpwgt_arg_sum += tf.matmul(recurrence_z, self.get_mapped_weights(self.params_state_evolutions[2][1], self.output_weight_map))
-    if self.include_initial_state:
-      cpwgt_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[2][2], self.output_weight_map))
-    cpwgt = 2*self.cpwgt_activation(cpwgt_arg_sum + self.get_mapped_bias(self.params_b[2], n))
-    # cpwgt is in [-2, 2]
-
-    old_state_arg = old_state*c_reverse - fwgt_log_1pexpz
-    new_state_arg = recurrence_z + fwgt_z - fwgt_log_1pexpz
-    old_state_part = tf.math.exp(old_state_arg)
-    new_state_part = tf.math.exp(new_state_arg)
-    sqrt_state_prod = tf.math.exp((old_state_arg + new_state_arg)/2)
-    res = tf.clip_by_value(old_state_part + new_state_part + cpwgt*sqrt_state_prod, 1e-9, 1e9)
-    if self.use_exp_act:
-      return res # This is already an exponential-like variable in [0, inf).
-    else:
-      return res/(1+res)
+      states.append(initial_state)
+    return self.state_correlator(states)
 
 
 
@@ -1649,66 +1747,14 @@ class RCNNFinalStateKernel(Layer):
     self.use_exp_act = use_exp_act
     self.is_symmetric = self.embedded_kernel.is_symmetric
 
-    num_outputs = None
-    if self.is_symmetric:
-      num_outputs = (self.kernel_distance**2 + 1)//2
-    else:
-      num_outputs = self.kernel_distance**2
-
-    label = f"RCNNFinalStateKernel_{kernel_parity[0]}_{kernel_parity[1]}"
-
-    self.output_map = None
-    self.output_weight_map = None
-    if self.is_symmetric:
-      self.output_map = get_layer_output_map(self.kernel_distance, self.is_symmetric)
-      fmap = [ q for q in range(self.kernel_distance**2) ]
-      rmap = [ self.kernel_distance**2-q-1 for q in range(self.kernel_distance**2) ]
-      omap = []
-      for q in range(self.kernel_distance**2):
-        qr = self.output_map[q]
-        if q == qr:
-          omap.append([qr, fmap])
-        else:
-          omap.append([qr, rmap])
-      self.output_weight_map = omap
-
-    n_states = 3 if not RCNNFinalStateKernel.ignore_initial_state else 2
-    n_evolve_params = 7
-    self.params_state_evolutions = self.add_weight(
-      name=f"{label}_w_state_evolutions",
-      shape=[ n_evolve_params, n_states, self.kernel_distance**2, num_outputs ],
-      initializer='zeros',
-      trainable=True
+    self.n_states = 3 if not RCNNFinalStateKernel.ignore_initial_state else 2
+    self.state_correlator = CNNStateCorrelator(
+      distance = self.kernel_distance,
+      rounds = self.n_states,
+      is_symmetric = self.is_symmetric,
+      npol = npol,
+      use_exp_act = self.use_exp_act
     )
-    self.params_b = self.add_weight(
-      name=f"{label}_b",
-      shape=[ n_evolve_params, 1, num_outputs ],
-      initializer='zeros',
-      trainable=True
-    )
-
-    self.reverse_activation = tf.math.tanh
-    self.cpwgt_activation = tf.math.tanh
-
-
-  def get_mapped_weights(self, w, wmap):
-    if wmap is None:
-      return w
-    wgts_mapped = []
-    for mm in wmap:
-      jout = mm[0]
-      ilist = mm[1]
-      if ilist is None:
-        wgts_mapped.append(w[:,jout])
-      else:
-        wgts_mapped.append(tf.gather(w[:,jout], ilist))
-    return tf.stack(wgts_mapped, axis=1)
-
-
-  def get_mapped_bias(self, bias, n):
-    if bias is None or not self.is_symmetric or self.output_map is None:
-      return tf.repeat(bias, n, axis=0) if bias is not None else None
-    return tf.repeat(tf.gather(bias, self.output_map, axis=1), n, axis=0)
 
 
   def call(self, inputs):
@@ -1718,6 +1764,7 @@ class RCNNFinalStateKernel(Layer):
     # * inputs[2]: det_bits of the last two rounds
     # * inputs[3]: det_evts of last round + last det_evts that ACTUALLY correspond to the full circuit!
     iin = 0
+    initial_state = None
     if not RCNNFinalStateKernel.ignore_initial_state:
       initial_state = inputs[iin]
       iin = iin + 1
@@ -1725,64 +1772,11 @@ class RCNNFinalStateKernel(Layer):
     #det_bits = inputs[2]
     #det_evts = inputs[3]
 
-    n = old_state.shape[0]
-
     final_z = self.embedded_kernel(inputs[iin:])
-
-    iparam = 0
-
-    # c_reverse is in [-1, 1]
-    c_reverse = []
-    # f is supposed to be in [0, 1], f_z in (-inf, inf), f_log_1pexpz in [0, inf)
-    f_z = []
-    f_log_1pexpz = []
-    for _ in range(2):
-      reverse_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
-      reverse_arg_sum += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      if not RCNNFinalStateKernel.ignore_initial_state:
-        reverse_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
-      c_reverse.append(self.reverse_activation(reverse_arg_sum + self.get_mapped_bias(self.params_b[iparam], n)))
-      iparam += 1
-
-      fwgt_z = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
-      fwgt_z += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      if not RCNNFinalStateKernel.ignore_initial_state:
-        fwgt_z += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
-      fwgt_z += self.get_mapped_bias(self.params_b[iparam], n)
-      f_z.append(fwgt_z)
-      f_log_1pexpz.append(tf.math.log1p(tf.math.exp(fwgt_z)))
-      iparam += 1
-
-    neg_sum_f_log_1pexpz = -(f_log_1pexpz[0] + f_log_1pexpz[1])
-    
-    two_cos_phi = []
-    # two_cos_phi is in [-2, 2]
-    for _ in range(3):
-      cpwgt_arg_sum = tf.matmul(old_state, self.get_mapped_weights(self.params_state_evolutions[iparam][0], self.output_weight_map))
-      cpwgt_arg_sum += tf.matmul(final_z, self.get_mapped_weights(self.params_state_evolutions[iparam][1], self.output_weight_map))
-      if not RCNNFinalStateKernel.ignore_initial_state:
-        cpwgt_arg_sum += tf.matmul(initial_state, self.get_mapped_weights(self.params_state_evolutions[iparam][2], self.output_weight_map))
-      two_cos_phi.append(2*self.cpwgt_activation(cpwgt_arg_sum + self.get_mapped_bias(self.params_b[iparam], n)))
-      iparam += 1
-
-    new_state_arg = final_z - f_log_1pexpz[0] + f_z[0]
-    new_state_part = tf.math.exp(new_state_arg)
-    old_state_arg = old_state*c_reverse[0] + neg_sum_f_log_1pexpz + f_z[1]
-    old_state_part = tf.math.exp(old_state_arg)
-    sqrt_state_prod_on = tf.math.exp((old_state_arg + new_state_arg)/2)
-    res = new_state_part + old_state_part + two_cos_phi[0]*sqrt_state_prod_on
+    states = [ final_z, old_state ]
     if not RCNNFinalStateKernel.ignore_initial_state:
-      initial_state_arg = initial_state*c_reverse[1] + neg_sum_f_log_1pexpz
-      initial_state_part = tf.math.exp(initial_state_arg)
-      sqrt_state_prod_in = tf.math.exp((initial_state_arg + new_state_arg)/2)
-      sqrt_state_prod_io = tf.math.exp((initial_state_arg + old_state_arg)/2)
-      res = res + initial_state_part + two_cos_phi[1]*sqrt_state_prod_in + two_cos_phi[2]*sqrt_state_prod_io
-
-    res = tf.clip_by_value(res, 1e-9, 1e9)
-    if self.use_exp_act:
-      return res # This is already an exponential-like variable in [0, inf).
-    else:
-      return res/(1+res)
+      states.append(initial_state)
+    return self.state_correlator(states)
 
 
 
