@@ -1460,7 +1460,7 @@ class CNNStateCorrelator(Layer):
     # two_cos_phi is in [-2, 2]
     for iph in range(self.n_phases):
       cpwgt_arg_sum = None
-      jph = 2*self.n_fracs + iph
+      jph = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + iph
       for r, input in enumerate(inputs):
         if cpwgt_arg_sum is None:
           cpwgt_arg_sum = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[jph][r], self.output_weight_map))
