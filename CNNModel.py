@@ -1348,6 +1348,14 @@ class CNNKernelWithEmbedding(Layer):
 
 
 class CNNStateCorrelator(Layer):
+  disable_fractions = False
+
+
+  @staticmethod
+  def set_disable_fractions(flag):
+    CNNStateCorrelator.disable_fractions = flag
+
+
   def __init__(
     self,
     distance,
@@ -1385,7 +1393,7 @@ class CNNStateCorrelator(Layer):
 
     self.n_fracs = self.rounds-1
     self.n_phases = self.rounds*(self.rounds-1)//2
-    n_evolve_params = 2*self.n_fracs + self.n_phases
+    n_evolve_params = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + self.n_phases
     self.params_state_evolutions = self.add_weight(
       name=f"{label}_w_state_evolutions",
       shape=[ n_evolve_params, self.rounds, num_inputs, num_outputs ],
@@ -1436,14 +1444,17 @@ class CNNStateCorrelator(Layer):
       for r, input in enumerate(inputs):
         if reverse_arg_sum is None:
           reverse_arg_sum = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac][r], self.output_weight_map))
-          fwgt_z = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs][r], self.output_weight_map))
+          if not CNNStateCorrelator.disable_fractions:
+            fwgt_z = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs][r], self.output_weight_map))
         else:
           reverse_arg_sum += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac][r], self.output_weight_map))
-          fwgt_z += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs][r], self.output_weight_map))
+          if not CNNStateCorrelator.disable_fractions:
+            fwgt_z += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs][r], self.output_weight_map))
       reverse_arg_sum = reverse_arg_sum + self.get_mapped_bias(self.params_b[ifrac], n)
-      fwgt_z = fwgt_z + self.get_mapped_bias(self.params_b[ifrac+self.n_fracs], n)
       c_reverse.append(self.reverse_activation(reverse_arg_sum))
-      f_z.append(fwgt_z)
+      if not CNNStateCorrelator.disable_fractions:
+        fwgt_z = fwgt_z + self.get_mapped_bias(self.params_b[ifrac+self.n_fracs], n)
+        f_z.append(fwgt_z)
     
     two_cos_phi = []
     # two_cos_phi is in [-2, 2]
@@ -1462,22 +1473,24 @@ class CNNStateCorrelator(Layer):
     f_denom = None
     state_args = []
     for ist, state in enumerate(inputs):
-      if f_denom is None:
-        f_denom = -f_log_1pexpz[ist]
-      elif ist<self.rounds-1:
-        f_denom -= f_log_1pexpz[ist]
-
       fwgt = None
-      if ist<self.rounds-1:
-        fwgt = f_z[ist] + f_denom
-      else:
-        fwgt = f_denom
+      if not CNNStateCorrelator.disable_fractions:
+        if f_denom is None:
+          f_denom = -f_log_1pexpz[ist]
+        elif ist<self.rounds-1:
+          f_denom -= f_log_1pexpz[ist]
+        if ist<self.rounds-1:
+          fwgt = f_z[ist] + f_denom
+        else:
+          fwgt = f_denom
 
       state_arg = None
       if ist==0:
-        state_arg = state + fwgt
+        state_arg = state
       else:
-        state_arg = state*c_reverse[ist-1] + fwgt
+        state_arg = state*c_reverse[ist-1]
+      if not CNNStateCorrelator.disable_fractions:
+        state_arg = state_arg + fwgt
       state_args.append(state_arg)
 
     res = None
