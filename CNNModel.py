@@ -2,6 +2,7 @@ from copy import deepcopy
 import tensorflow as tf
 from tensorflow.keras.layers import Layer, Dense
 from tensorflow.keras.models import Model
+from tensorflow.keras.initializers import Initializer
 from circuit_partition import *
 from types_cfg import *
 from utilities_arrayops import *
@@ -511,9 +512,9 @@ class DetectorBitStateEmbedder(Layer):
     self.distance = distance
     self.rounds = rounds
     self.is_symmetric = is_symmetric
-    self.ndims = (self.distance**2 - 1)*self.rounds
     self.npol = npol
     self.ignore_diagonal = ignore_diagonal
+    self.ndims = (self.distance**2 - 1)*self.rounds
 
     self.embedder_label = f"DetectorBitStateEmbedder_npol{self.npol}"
 
@@ -553,6 +554,20 @@ class DetectorBitStateEmbedder(Layer):
         self.triangular_backpolmap = [ self.triangular_polmap.index(ii) for ii in triangular_polmap_sorted ]
       else:
         self.triangular_polmap = triangular_polmap_nondiag
+  
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        "distance": self.distance,
+        "rounds": self.rounds,
+        "is_symmetric": self.is_symmetric,
+        "npol": self.npol,
+        "ignore_diagonal": self.ignore_diagonal
+      }
+    )
+    return config
 
 
   def embed_pol_state(self, res_diag, res_nondiag, embedding_nondiag_tr):
@@ -647,19 +662,22 @@ class DetectorEventStateEmbedder(Layer):
     super(DetectorEventStateEmbedder, self).__init__(**kwargs)
     self.distance = distance
     self.rounds = rounds
+    self.ignore_first_round = ignore_first_round
+    self.ignore_last_round = ignore_last_round
+    self.obs_type = obs_type
     self.is_symmetric = is_symmetric
-    self.n_ancillas = (self.distance**2 - 1)
-    self.ndims = self.n_ancillas*(self.rounds-1)
-    if not ignore_first_round:
-      self.ndims += self.n_ancillas//2
-    if not ignore_last_round:
-      self.ndims += self.n_ancillas//2
     self.npol = npol
     self.ignore_diagonal = ignore_diagonal
+    self.n_ancillas = (self.distance**2 - 1)
+    self.ndims = self.n_ancillas*(self.rounds-1)
+    if not self.ignore_first_round:
+      self.ndims += self.n_ancillas//2
+    if not self.ignore_last_round:
+      self.ndims += self.n_ancillas//2
 
     self.embedder_label = f"DetectorEventStateEmbedder_npol{self.npol}"
 
-    self.embedding_param_map = get_detector_evts_perround_embedding_map(self.distance, self.rounds, obs_type, self.npol, self.is_symmetric, ignore_first_round, ignore_last_round)
+    self.embedding_param_map = get_detector_evts_perround_embedding_map(self.distance, self.rounds, self.obs_type, self.npol, self.is_symmetric, self.ignore_first_round, self.ignore_last_round)
     self.nondiag_param_map = None
     if self.embedding_param_map is not None:
       self.nondiag_param_map = [ i for i in self.embedding_param_map if i>=0 ]
@@ -702,6 +720,23 @@ class DetectorEventStateEmbedder(Layer):
         self.triangular_backpolmap = [ self.triangular_polmap.index(ii) for ii in triangular_polmap_sorted ]
       else:
         self.triangular_polmap = triangular_polmap_nondiag
+  
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        "distance": self.distance,
+        "rounds": self.rounds,
+        "ignore_first_round": self.ignore_first_round,
+        "ignore_last_round": self.ignore_last_round,
+        "obs_type": self.obs_type,
+        "is_symmetric": self.is_symmetric,
+        "npol": self.npol,
+        "ignore_diagonal": self.ignore_diagonal
+      }
+    )
+    return config
 
 
   def embed_pol_state(self, res_diag, res_nondiag, embedding_nondiag_tr):
@@ -820,8 +855,8 @@ class TripletStateProbEmbedder(Layer):
     self.distance = distance
     self.rounds = rounds
     self.npol = npol
-    self.n_ancillas = (self.distance**2 - 1)
     self.is_symmetric = is_symmetric
+    self.n_ancillas = (self.distance**2 - 1)
     self.embed_label = f"TripletStateProbEmbedder_d{self.distance}_r{self.rounds}_npol{self.npol}"
 
     self.state_tracker = None
@@ -860,6 +895,19 @@ class TripletStateProbEmbedder(Layer):
         initializer='zeros',
         trainable=True
       )
+  
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'distance': self.distance,
+        'rounds': self.rounds,
+        'npol': self.npol,
+        'is_symmetric': self.is_symmetric
+      }
+    )
+    return config
 
 
   def embed_pol_state(self, res_diag, res_nondiag, embedding_diag_tr, embedding_nondiag_tr):
@@ -964,7 +1012,7 @@ class TripletStateProbEmbedder(Layer):
 class CNNKernel(Layer):
   def __init__(
       self,
-      kernel_type, obs_type, kernel_distance, rounds,
+      kernel_parity, obs_type, kernel_distance, rounds,
       npol=1,
       do_all_data_qubits = False,
       include_det_bits = True,
@@ -975,6 +1023,7 @@ class CNNKernel(Layer):
       **kwargs
     ):
     super(CNNKernel, self).__init__(**kwargs)
+    self.kernel_parity = kernel_parity
     self.obs_type = obs_type
     self.kernel_distance = kernel_distance
     self.rounds = rounds
@@ -988,9 +1037,9 @@ class CNNKernel(Layer):
     self.discard_bias = discard_bias
     self.n_remove_last_det_evts = n_remove_last_det_evts
     self.n_ancillas = (self.kernel_distance**2 - 1)
-    self.is_symmetric = kernel_type[0]==0 and kernel_type[1]==0
+    self.is_symmetric = kernel_parity[0]==0 and kernel_parity[1]==0
 
-    constraint_label = f"{kernel_type[0]}_{kernel_type[1]}"
+    constraint_label = f"{kernel_parity[0]}_{kernel_parity[1]}"
 
     ndim1 = self.n_ancillas*self.rounds # Number of ancilla measurements
     ndim2 = 0 # Number of detector events
@@ -1052,6 +1101,26 @@ class CNNKernel(Layer):
       )
     if not self.discard_activation:
       self.kernel_activation = tf.keras.activations.sigmoid
+  
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'kernel_parity': self.kernel_parity,
+        'obs_type': self.obs_type,
+        'kernel_distance': self.kernel_distance,
+        'rounds': self.rounds,
+        'npol': self.npol,
+        'do_all_data_qubits': self.do_all_data_qubits,
+        'include_det_bits': self.include_det_bits,
+        'include_det_evts': self.include_det_evts,
+        'n_remove_last_det_evts': self.n_remove_last_det_evts,
+        'discard_activation': self.discard_activation,
+        'discard_bias': self.discard_bias
+      }
+    )
+    return config
 
 
   def build(self, input_shape):
@@ -1144,7 +1213,7 @@ class CNNKernel(Layer):
 class CNNKernelWithEmbedding(Layer):
   def __init__(
       self,
-      kernel_type, obs_type, kernel_distance, rounds,
+      kernel_parity, obs_type, kernel_distance, rounds,
       npol=1,
       do_all_data_qubits = False,
       include_det_bits = True,
@@ -1157,6 +1226,7 @@ class CNNKernelWithEmbedding(Layer):
       **kwargs
     ):
     super(CNNKernelWithEmbedding, self).__init__(**kwargs)
+    self.kernel_parity = kernel_parity
     self.obs_type = obs_type
     self.kernel_distance = kernel_distance
     self.rounds = rounds
@@ -1170,7 +1240,7 @@ class CNNKernelWithEmbedding(Layer):
     self.discard_bias = discard_bias
     self.n_remove_last_det_evts = n_remove_last_det_evts
     self.n_ancillas = (self.kernel_distance**2 - 1)
-    self.is_symmetric = kernel_type[0]==0 and kernel_type[1]==0
+    self.is_symmetric = kernel_parity[0]==0 and kernel_parity[1]==0
     self.ignore_diagonal_det_bits = self.npol > 1
     self.ignore_diagonal_det_evts = self.npol > 1 and self.include_det_bits
     self.ignore_first_det_evt_round = ignore_first_det_evt_round
@@ -1179,7 +1249,7 @@ class CNNKernelWithEmbedding(Layer):
     if self.ignore_first_det_evt_round and self.n_remove_last_det_evts>0:
       self.rounds_det_evts += 1
 
-    label = f"CNNKernelWithEmbedding_{kernel_type[0]}_{kernel_type[1]}"
+    label = f"CNNKernelWithEmbedding_{kernel_parity[0]}_{kernel_parity[1]}"
 
     ndim1 = self.n_ancillas*self.rounds # Number of ancilla measurements
     ndim2 = 0 # Number of detector events
@@ -1267,6 +1337,27 @@ class CNNKernelWithEmbedding(Layer):
         self.kernel_activation = tf.keras.activations.exponential
       else:
         self.kernel_activation = tf.keras.activations.sigmoid
+  
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'kernel_parity': self.kernel_parity,
+        'obs_type': self.obs_type,
+        'kernel_distance': self.kernel_distance,
+        'rounds': self.rounds,
+        'npol': self.npol,
+        'do_all_data_qubits': self.do_all_data_qubits,
+        'include_det_bits': self.include_det_bits,
+        'include_det_evts': self.include_det_evts,
+        'n_remove_last_det_evts': self.n_remove_last_det_evts,
+        'discard_activation': self.discard_activation,
+        'discard_bias': self.discard_bias,
+        'ignore_first_det_evt_round': self.ignore_first_det_evt_round,
+        'use_exp_act': self.use_exp_act
+      }
+    )
 
 
   def build(self, input_shape):
@@ -1347,9 +1438,128 @@ class CNNKernelWithEmbedding(Layer):
 
 
 
+class CNNStateCorrelatorWeightInitializer(Initializer):
+  def __init__(
+      self,
+      distance,
+      rounds,
+      is_symmetric,
+      npol,
+      disable_fractions,
+      new_state_reversability,
+      scale = 1.
+    ):
+    self.distance = distance
+    self.rounds = rounds
+    self.is_symmetric = is_symmetric
+    self.npol = npol
+    self.disable_fractions = disable_fractions
+    self.new_state_reversability = new_state_reversability
+    self.scale = scale
+    self.n_fracs = self.rounds-1
+    self.n_phases = self.rounds*(self.rounds-1)//2
+
+    num_inputs = self.distance**2
+    num_outputs = self.distance**2 if not self.is_symmetric else (self.distance**2 + 1)//2
+    n_evolve_params = self.n_fracs*(1 if self.disable_fractions else 2) + (1 if self.new_state_reversability else 0) + self.n_phases
+    self.shape_exp = [ n_evolve_params, self.rounds, num_inputs, num_outputs ]
+
+
+  def __call__(self, shape, dtype=None):
+    # Check first if the shape is compatible with the expected shape
+    if shape != self.shape_exp:
+      raise ValueError(f"Expected shape {self.shape_exp}, but received shape {shape}")
+    # Initialize weights for state reversion for old states
+    res = np.zeros(shape, dtype=convert_to_npdtype(dtype))
+    for iparam in range(self.n_fracs):
+      for r in range(self.rounds):
+        res[iparam,r,:,:] = (self.n_fracs if iparam+1==r else -1)
+    # No need to initialize fraction and phase weights - they should already be 0.
+    idx_offset = self.n_fracs if self.disable_fractions else 2*self.n_fracs
+    if self.new_state_reversability:
+      res[idx_offset,0,:,:] = self.n_fracs
+      res[idx_offset,1:,:,:] = -1
+    res = res*self.scale
+    return res
+
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'distance': self.distance,
+        'rounds': self.rounds,
+        'is_symmetric': self.is_symmetric,
+        'npol': self.npol,
+        'disable_fractions': self.disable_fractions,
+        'new_state_reversability': self.new_state_reversability,
+        'scale': self.scale
+      }
+    )
+    return config
+
+
+
+class CNNStateCorrelatorBiasInitializer(Initializer):
+  def __init__(
+      self,
+      distance,
+      rounds,
+      is_symmetric,
+      npol,
+      disable_fractions,
+      new_state_reversability,
+      scale = 1.
+    ):
+    self.distance = distance
+    self.rounds = rounds
+    self.is_symmetric = is_symmetric
+    self.npol = npol
+    self.disable_fractions = disable_fractions
+    self.new_state_reversability = new_state_reversability
+    self.scale = scale
+    self.n_fracs = self.rounds-1
+    self.n_phases = self.rounds*(self.rounds-1)//2
+
+    num_outputs = self.distance**2 if not self.is_symmetric else (self.distance**2 + 1)//2
+    n_evolve_params = self.n_fracs*(1 if self.disable_fractions else 2) + (1 if self.new_state_reversability else 0) + self.n_phases
+    self.shape_exp = [ n_evolve_params, 1, num_outputs ]
+
+
+  def __call__(self, shape, dtype=None):
+    # Check first if the shape is compatible with the expected shape
+    if shape != self.shape_exp:
+      raise ValueError(f"Expected shape {self.shape_exp}, but received shape {shape}")
+    # Initialize weights for state reversion for old states
+    res = np.zeros(shape, dtype=convert_to_npdtype(dtype))
+    res[:self.n_fracs,:,:] = 2
+    idx_offset = self.n_fracs if self.disable_fractions else 2*self.n_fracs
+    if self.new_state_reversability:
+      res[idx_offset,:,:] = 2
+    res = res*self.scale
+    return res
+
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'distance': self.distance,
+        'rounds': self.rounds,
+        'is_symmetric': self.is_symmetric,
+        'npol': self.npol,
+        'disable_fractions': self.disable_fractions,
+        'new_state_reversability': self.new_state_reversability,
+        'scale': self.scale
+      }
+    )
+    return config
+
+
+
 class CNNStateCorrelator(Layer):
   disable_fractions = False
-  new_state_reversability = False
+  new_state_reversability = True
 
 
   @staticmethod
@@ -1369,6 +1579,8 @@ class CNNStateCorrelator(Layer):
     is_symmetric,
     npol = 1,
     use_exp_act = True,
+    reset_disable_fractions = None,
+    reset_new_state_reversability = None,
     **kwargs
   ):
     super(CNNStateCorrelator, self).__init__(**kwargs)
@@ -1377,6 +1589,12 @@ class CNNStateCorrelator(Layer):
     self.npol = npol
     self.is_symmetric = is_symmetric
     self.use_exp_act = use_exp_act
+
+    # In case we are constructing through a call to from_config(), we need to have a reset functionality for static variables.
+    if reset_disable_fractions is not None:
+      CNNStateCorrelator.set_disable_fractions(reset_disable_fractions)
+    if reset_new_state_reversability is not None:
+      CNNStateCorrelator.set_new_state_reversability(reset_new_state_reversability)
 
     label = f"CNNStateCorrelator_d{self.distance}_r{self.rounds}"
 
@@ -1399,35 +1617,54 @@ class CNNStateCorrelator(Layer):
 
     self.n_fracs = self.rounds-1
     self.n_phases = self.rounds*(self.rounds-1)//2
-    n_evolve_params = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + self.n_phases
+    n_evolve_params = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + (1 if CNNStateCorrelator.new_state_reversability else 0) + self.n_phases
     self.params_state_evolutions = self.add_weight(
       name=f"{label}_w_state_evolutions",
       shape=[ n_evolve_params, self.rounds, num_inputs, num_outputs ],
-      initializer='zeros',
+      initializer=CNNStateCorrelatorWeightInitializer(
+        distance=self.distance,
+        rounds=self.rounds,
+        is_symmetric=self.is_symmetric,
+        npol=self.npol,
+        disable_fractions=CNNStateCorrelator.disable_fractions,
+        new_state_reversability=CNNStateCorrelator.new_state_reversability,
+        scale=1.
+      ),
       trainable=True
     )
     self.params_b = self.add_weight(
       name=f"{label}_b",
       shape=[ n_evolve_params, 1, num_outputs ],
-      initializer='zeros',
+      initializer=CNNStateCorrelatorBiasInitializer(
+        distance=self.distance,
+        rounds=self.rounds,
+        is_symmetric=self.is_symmetric,
+        npol=self.npol,
+        disable_fractions=CNNStateCorrelator.disable_fractions,
+        new_state_reversability=CNNStateCorrelator.new_state_reversability,
+        scale=1.
+      ),
       trainable=True
     )
-    if CNNStateCorrelator.new_state_reversability:
-      self.params_new_state_reverse = self.add_weight(
-        name=f"{label}_w_new_state_reverse",
-        shape=[ self.rounds, num_inputs, num_outputs ],
-        initializer='zeros',
-        trainable=True
-      )
-      self.params_new_state_reverse_b = self.add_weight(
-        name=f"{label}_b",
-        shape=[ 1, num_outputs ],
-        initializer='ones',
-        trainable=True
-      )
 
     self.reverse_activation = tf.math.tanh
     self.cpwgt_activation = tf.math.tanh
+
+  
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'distance': self.distance,
+        'rounds': self.rounds,
+        'is_symmetric': self.is_symmetric,
+        'npol': self.npol,
+        'use_exp_act': self.use_exp_act,
+        'reset_disable_fractions': CNNStateCorrelator.disable_fractions,
+        'reset_new_state_reversability': CNNStateCorrelator.new_state_reversability
+      }
+    )
+    return config
 
   
   def get_mapped_weights(self, w, wmap):
@@ -1480,12 +1717,13 @@ class CNNStateCorrelator(Layer):
     c_reverse_new_state = None
     if CNNStateCorrelator.new_state_reversability:
       for r, input in enumerate(inputs):
-        reverse_arg_mul = tf.matmul(input, self.get_mapped_weights(self.params_new_state_reverse[r], self.output_weight_map))
+        reverse_arg_mul = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[idx_offset][r], self.output_weight_map))
         if c_reverse_new_state is None:
           c_reverse_new_state = reverse_arg_mul
         else:
           c_reverse_new_state += reverse_arg_mul
-      c_reverse_new_state = self.reverse_activation(c_reverse_new_state + self.get_mapped_bias(self.params_new_state_reverse_b, n))
+      c_reverse_new_state = self.reverse_activation(c_reverse_new_state + self.get_mapped_bias(self.params_b[idx_offset], n))
+      idx_offset += 1
     
     two_cos_phi = []
     # two_cos_phi is in [-2, 2]
@@ -1545,6 +1783,15 @@ class CNNStateCorrelator(Layer):
 
 
 
+class CNNEmbeddedKernelChooser:
+  kernel_t = CNNKernel
+
+  @classmethod
+  def set_kernel_type(cls, kernel_t):
+    cls.kernel_t = kernel_t
+
+
+
 class RCNNEmbeddedKernelChooser:
   kernel_t = CNNKernelWithEmbedding
 
@@ -1566,7 +1813,7 @@ class RCNNInitialStateKernel(Layer):
     super(RCNNInitialStateKernel, self).__init__(**kwargs)
     self.rounds_first = 2
     self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
-      kernel_type = kernel_parity,
+      kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
       rounds = self.rounds_first,
@@ -1581,6 +1828,20 @@ class RCNNInitialStateKernel(Layer):
       use_exp_act = use_exp_act,
       **kwargs
     )
+
+  
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'kernel_parity': self.kernel_parity,
+        'obs_type': self.obs_type,
+        'kernel_distance': self.kernel_distance,
+        'npol': self.npol,
+        'use_exp_act': self.use_exp_act
+      }
+    )
+    return config
 
 
   def call(self, inputs):
@@ -1600,7 +1861,10 @@ class RCNNRecurrenceBaseKernel(Layer):
       **kwargs
     ):
     super(RCNNRecurrenceBaseKernel, self).__init__(**kwargs)
+    self.kernel_parity = kernel_parity
+    self.obs_type = obs_type
     self.kernel_distance = kernel_distance
+    self.append_name = append_name
     self.rounds = 2
     self.npol = npol
     self.n_ancillas = (self.kernel_distance**2 - 1)
@@ -1618,7 +1882,7 @@ class RCNNRecurrenceBaseKernel(Layer):
     )
     # For detector events, we can let the CNNKernelWithEmbedding layer take care of the embedding and weight evaluation.
     self.evaluator_det_evts = RCNNEmbeddedKernelChooser.kernel_t(
-      kernel_type = kernel_parity,
+      kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
       rounds = self.rounds,
@@ -1657,6 +1921,21 @@ class RCNNRecurrenceBaseKernel(Layer):
       npol = self.npol,
       use_exp_act = self.use_exp_act
     )
+  
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'kernel_parity': self.kernel_parity,
+        'obs_type': self.obs_type,
+        'kernel_distance': self.kernel_distance,
+        'npol': self.npol,
+        'use_exp_act': self.use_exp_act
+        # No need for include_initial_state. This parameter is overridden through daughter classes, which is how the constructor of this class should be called.
+      }
+    )
+    return config
 
 
   def get_mapped_weights(self, w, wmap):
@@ -1760,6 +2039,7 @@ class RCNNRecurrenceKernel(RCNNRecurrenceBaseKernel):
 class RCNNFinalStateKernel(Layer):
   ignore_initial_state = False
 
+
   @staticmethod
   def set_ignore_initial_state(flag):
     RCNNFinalStateKernel.ignore_initial_state = flag
@@ -1771,12 +2051,13 @@ class RCNNFinalStateKernel(Layer):
       obs_type, kernel_distance,
       npol = 1,
       use_exp_act = True,
+      reset_ignore_initial_state = None,
       **kwargs
     ):
     super(RCNNFinalStateKernel, self).__init__(**kwargs)
     self.rounds_last = 2
     self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
-      kernel_type = kernel_parity,
+      kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
       rounds = self.rounds_last,
@@ -1795,6 +2076,10 @@ class RCNNFinalStateKernel(Layer):
     self.use_exp_act = use_exp_act
     self.is_symmetric = self.embedded_kernel.is_symmetric
 
+    # In case we are constructing through a call to from_config(), we need to have a reset functionality for static variables.
+    if reset_ignore_initial_state is not None:
+      RCNNFinalStateKernel.set_ignore_initial_state(reset_ignore_initial_state)
+
     self.n_states = 3 if not RCNNFinalStateKernel.ignore_initial_state else 2
     self.state_correlator = CNNStateCorrelator(
       distance = self.kernel_distance,
@@ -1803,6 +2088,21 @@ class RCNNFinalStateKernel(Layer):
       npol = npol,
       use_exp_act = self.use_exp_act
     )
+  
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'kernel_parity': self.embedded_kernel.kernel_parity,
+        'obs_type': self.embedded_kernel.obs_type,
+        'kernel_distance': self.kernel_distance,
+        'npol': self.embedded_kernel.npol,
+        'use_exp_act': self.use_exp_act,
+        'reset_ignore_initial_state': RCNNFinalStateKernel.ignore_initial_state
+      }
+    )
+    return config
 
 
   def call(self, inputs):
@@ -2060,6 +2360,21 @@ class RCNNKernelCombiner(Layer):
       )
 
 
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'obs_type': self.kernel_collector.obs_type,
+        'code_distance': self.code_distance,
+        'kernel_distance': self.kernel_distance,
+        'npol': self.kernel_collector.npol,
+        'has_nonuniform_response': self.has_nonuniform_response
+        # That is it. We do not need to save the kernel_collector since this is a base class with a collector that is explicitly defined in daughters.
+      }
+    )
+    return config
+
+
   def eval_final_data_qubit_pred_layer(self, data_qubit_final_preds):
     # We assume data_qubit_final_preds is flat along axis=1 and represents z values.
     if self.nonuniform_response_adj is not None:
@@ -2220,7 +2535,6 @@ class FullCNNModel(Model):
       include_last_dets = True,
       has_nonuniform_response = False,
       use_translated_kernels = False,
-      KernelProcessor = CNNKernel,
       **kwargs
     ):
     super(FullCNNModel, self).__init__(**kwargs)
@@ -2239,6 +2553,7 @@ class FullCNNModel(Model):
     self.include_last_dets = include_last_dets
     self.has_nonuniform_response = has_nonuniform_response
     self.use_translated_kernels = use_translated_kernels
+    self.hidden_specs = hidden_specs
 
     self.cnn_kernels = []
     self.unique_kernel_types = get_unique_kernel_types(self.kernel_distance, code_distance)
@@ -2265,8 +2580,8 @@ class FullCNNModel(Model):
           n_remove_last_dets = self.n_kernel_last_det_evts
 
       self.cnn_kernels.append(
-        KernelProcessor(
-          kernel_type = kernel_parity,
+        CNNEmbeddedKernelChooser.kernel_t(
+          kernel_parity = kernel_parity,
           obs_type = self.obs_type,
           kernel_distance = self.kernel_distance,
           rounds = self.rounds,
@@ -2406,7 +2721,7 @@ class FullCNNModel(Model):
     self.noutputs_final = 1 if not self.do_all_data_qubits else self.code_distance**2
     self.first_dense_nout = None
     self.upper_layers = []
-    for hs in hidden_specs:
+    for hs in self.hidden_specs:
       if self.first_dense_nout is None:
         self.first_dense_nout = hs
       self.upper_layers.append(Dense(hs))
@@ -2417,6 +2732,29 @@ class FullCNNModel(Model):
     self.data_qubit_pred_eval_layer = Dense(self.first_dense_nout, use_bias=False)
     self.upper_layers.append(Dense(self.noutputs_final))
     self.upper_layers.append(tf.keras.layers.Activation('sigmoid'))
+
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'obs_type': self.obs_type,
+        'code_distance': self.code_distance,
+        'kernel_distance': self.kernel_distance,
+        'rounds': self.rounds,
+        'hidden_specs': self.hidden_specs,
+        'npol': self.npol,
+        'do_all_data_qubits': self.do_all_data_qubits,
+        'extended_kernel_output': self.extended_kernel_output,
+        'include_det_evts': self.include_det_evts,
+        'include_last_kernel_dets': self.include_last_kernel_dets,
+        'include_last_dets': self.include_last_dets,
+        'has_nonuniform_response': self.has_nonuniform_response,
+        'use_translated_kernels': self.use_translated_kernels
+      }
+    )
+    return config
+
 
   def eval_final_data_qubit_pred_layer(self, data_qubit_final_preds):
     # We assume data_qubit_final_preds is flat along axis=1
@@ -2622,6 +2960,7 @@ class FullRCNNModel(Model):
     self.n_kernel_last_det_evts = (self.kernel_distance**2-1)//2
     self.nshifts = self.code_distance - self.kernel_distance + 1
     self.rounds = rounds
+    self.hidden_specs = hidden_specs
     self.npol = npol
     self.stop_round = stop_round
     if self.stop_round is not None and (self.stop_round>self.rounds or self.stop_round<0):
@@ -2704,6 +3043,24 @@ class FullRCNNModel(Model):
       self.layers_decoder.append(tf.keras.layers.Activation('sigmoid'))
   
     self.decoded_outputs = []
+
+  
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        "obs_type": self.obs_type,
+        "code_distance": self.code_distance,
+        "kernel_distance": self.kernel_distance,
+        "rounds": self.rounds,
+        "hidden_specs": self.hidden_specs,
+        "npol": self.npol,
+        "stop_round": self.stop_round,
+        "has_nonuniform_response": self.has_nonuniform_response,
+        "return_all_rounds": self.return_all_rounds
+      }
+    )
+    return config
 
 
   def set_rounds(self, rounds):
