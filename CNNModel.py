@@ -1480,7 +1480,7 @@ class CNNStateCorrelatorWeightInitializer(Initializer):
       res[idx_offset,0,:,:] = self.n_fracs
       res[idx_offset,1:,:,:] = -1
     res = res*self.scale
-    return res
+    return tf.convert_to_tensor(res, dtype=dtype)
 
 
   def get_config(self):
@@ -1537,7 +1537,7 @@ class CNNStateCorrelatorBiasInitializer(Initializer):
     if self.new_state_reversability:
       res[idx_offset,:,:] = 2
     res = res*self.scale
-    return res
+    return tf.convert_to_tensor(res, dtype=dtype)
 
 
   def get_config(self):
