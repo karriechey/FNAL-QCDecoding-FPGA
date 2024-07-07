@@ -1349,11 +1349,17 @@ class CNNKernelWithEmbedding(Layer):
 
 class CNNStateCorrelator(Layer):
   disable_fractions = False
+  new_state_reversability = False
 
 
   @staticmethod
   def set_disable_fractions(flag):
     CNNStateCorrelator.disable_fractions = flag
+
+  
+  @staticmethod
+  def set_new_state_reversability(flag):
+    CNNStateCorrelator.new_state_reversability = flag
 
 
   def __init__(
@@ -1393,7 +1399,7 @@ class CNNStateCorrelator(Layer):
 
     self.n_fracs = self.rounds-1
     self.n_phases = self.rounds*(self.rounds-1)//2
-    n_evolve_params = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + self.n_phases
+    n_evolve_params = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + (1 if CNNStateCorrelator.new_state_reversability else 0) + self.n_phases
     self.params_state_evolutions = self.add_weight(
       name=f"{label}_w_state_evolutions",
       shape=[ n_evolve_params, self.rounds, num_inputs, num_outputs ],
@@ -1456,11 +1462,23 @@ class CNNStateCorrelator(Layer):
         fwgt_z = fwgt_z + self.get_mapped_bias(self.params_b[ifrac+self.n_fracs], n)
         f_z.append(fwgt_z)
     
+    idx_offset = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2)
+    c_reverse_new_state = None
+    if CNNStateCorrelator.new_state_reversability:
+      for r, input in enumerate(inputs):
+        reverse_arg_mul = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[idx_offset][r], self.output_weight_map))
+        if c_reverse_new_state is None:
+          c_reverse_new_state = reverse_arg_mul
+        else:
+          c_reverse_new_state += reverse_arg_mul
+      c_reverse_new_state = self.reverse_activation(c_reverse_new_state + self.get_mapped_bias(self.params_b[idx_offset], n))
+      idx_offset += 1
+    
     two_cos_phi = []
     # two_cos_phi is in [-2, 2]
     for iph in range(self.n_phases):
       cpwgt_arg_sum = None
-      jph = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + iph
+      jph = idx_offset + iph
       for r, input in enumerate(inputs):
         if cpwgt_arg_sum is None:
           cpwgt_arg_sum = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[jph][r], self.output_weight_map))
@@ -1487,6 +1505,8 @@ class CNNStateCorrelator(Layer):
       state_arg = None
       if ist==0:
         state_arg = state
+        if CNNStateCorrelator.new_state_reversability:
+          state_arg = state_arg*c_reverse_new_state
       else:
         state_arg = state*c_reverse[ist-1]
       if not CNNStateCorrelator.disable_fractions:
