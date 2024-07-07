@@ -1464,13 +1464,15 @@ class CNNStateCorrelator(Layer):
     for ist, state in enumerate(inputs):
       if f_denom is None:
         f_denom = -f_log_1pexpz[ist]
-      else:
+      elif ist<self.rounds-1:
         f_denom -= f_log_1pexpz[ist]
+
       fwgt = None
       if ist<self.rounds-1:
         fwgt = f_z[ist] + f_denom
       else:
         fwgt = f_denom
+
       state_arg = None
       if ist==0:
         state_arg = state + fwgt
