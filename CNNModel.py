@@ -596,11 +596,12 @@ class DetectorBitStateEmbedder(Layer):
       res = tf.cast(x, tf.float32)
     else:
       xx = x + 1
+      xsh = arrayops_shape(x)
       res = tf.matmul(
-        tf.cast(tf.reshape(xx, shape=(x.shape[0], x.shape[1], 1)), tf.int16),
-        tf.cast(tf.reshape(xx, shape=(x.shape[0], 1, x.shape[1])), tf.int16)
+        tf.cast(tf.reshape(xx, shape=(xsh[0], xsh[1], 1)), tf.int16),
+        tf.cast(tf.reshape(xx, shape=(xsh[0], 1, xsh[1])), tf.int16)
       )
-      res = tf.gather(tf.reshape(res, shape=(x.shape[0], -1)), self.triangular_polmap, axis=1)
+      res = tf.gather(tf.reshape(res, shape=(xsh[0], -1)), self.triangular_polmap, axis=1)
 
       res_diag = None
       res_nondiag = None
@@ -632,7 +633,7 @@ class DetectorBitStateEmbedder(Layer):
 
 
   def call(self, input):
-    n = input.shape[0]
+    n = arrayops_shape(input, 0)
     embedding_nondiag_tr = self.get_transformed_embedding_params(n)
     return self.get_transformed_state(input, embedding_nondiag_tr)
 
@@ -765,11 +766,12 @@ class DetectorEventStateEmbedder(Layer):
       res = tf.cast(x, tf.float32)
     else:
       xx = x + 1
+      xsh = arrayops_shape(x)
       res = tf.matmul(
-        tf.cast(tf.reshape(xx, shape=(x.shape[0], x.shape[1], 1)), tf.int16),
-        tf.cast(tf.reshape(xx, shape=(x.shape[0], 1, x.shape[1])), tf.int16)
+        tf.cast(tf.reshape(xx, shape=(xsh[0], xsh[1], 1)), tf.int16),
+        tf.cast(tf.reshape(xx, shape=(xsh[0], 1, xsh[1])), tf.int16)
       )
-      res = tf.gather(tf.reshape(res, shape=(x.shape[0], -1)), self.triangular_polmap, axis=1)
+      res = tf.gather(tf.reshape(res, shape=(xsh[0], -1)), self.triangular_polmap, axis=1)
 
       res_diag = None
       res_nondiag = None
@@ -807,7 +809,7 @@ class DetectorEventStateEmbedder(Layer):
 
 
   def call(self, input):
-    n = input.shape[0]
+    n = arrayops_shape(input, 0)
     embedding_nondiag_tr = self.get_transformed_embedding_params(n)
     return self.get_transformed_state(input, embedding_nondiag_tr)
 
@@ -928,11 +930,12 @@ class TripletStateProbEmbedder(Layer):
       res = tf.cast(x, tf.float32)
     else:
       xx = x + 3 # (-1, 0, 1) -> (2, 3, 4)
+      xsh = arrayops_shape(x)
       res = tf.matmul(
-        tf.cast(tf.reshape(xx, shape=(x.shape[0], x.shape[1], 1)), tf.int16),
-        tf.cast(tf.reshape(xx, shape=(x.shape[0], 1, x.shape[1])), tf.int16)
+        tf.cast(tf.reshape(xx, shape=(xsh[0], xsh[1], 1)), tf.int16),
+        tf.cast(tf.reshape(xx, shape=(xsh[0], 1, xsh[1])), tf.int16)
       )
-      res = tf.gather(tf.reshape(res, shape=(x.shape[0], -1)), self.triangular_polmap, axis=1)
+      res = tf.gather(tf.reshape(res, shape=(xsh[0], -1)), self.triangular_polmap, axis=1)
       res_diag = res[:,0:self.n_ancillas]
       res_nondiag = res[:,self.n_ancillas:]
       # res has values (4, 8, 16 | 6, 9, 12) now
@@ -997,12 +1000,12 @@ class TripletStateProbEmbedder(Layer):
 
 
   def reset_tracker_states(self, n):
-    self.state_tracker = tf.constant([[ -1 for _ in range(self.n_ancillas) ] for _ in range(n)], dtype=tf.int8)
-    self.delta_tracker = tf.constant([[ 1 for _ in range(self.n_ancillas) ] for _ in range(n)], dtype=tf.int8)
+    self.state_tracker = -arrayops_ones(shape=(n, self.n_ancillas), dtype=tf.int8)
+    self.delta_tracker = arrayops_ones(shape=(n, self.n_ancillas), dtype=tf.int8)
 
 
   def call(self, input):
-    n = input.shape[0]
+    n = arrayops_shape(input, 0)
     self.reset_tracker_states(n)
     embedding_diag_tr, embedding_nondiag_tr = self.get_transformed_embedding_params(n)
     return self.get_transformed_state(input, embedding_diag_tr, embedding_nondiag_tr)
@@ -1132,11 +1135,12 @@ class CNNKernel(Layer):
     if self.npol==1:
       res = x
     else:
+      xsh = arrayops_shape(x)
       res = tf.matmul(
-        tf.cast(tf.reshape((x+1), shape=(x.shape[0], x.shape[1], 1)), tf.int16),
-        tf.cast(tf.reshape((x+1), shape=(x.shape[0], 1, x.shape[1])), tf.int16)
+        tf.cast(tf.reshape((x+1), shape=(xsh[0], xsh[1], 1)), tf.int16),
+        tf.cast(tf.reshape((x+1), shape=(xsh[0], 1, xsh[1])), tf.int16)
       )
-      res = tf.gather(tf.reshape(res, (x.shape[0], -1)), tmap, axis=1)
+      res = tf.gather(tf.reshape(res, (xsh[0], -1)), tmap, axis=1)
       res = (-res*res+res*9-14)/6 # (1, 2, 4) -> (-1, 0, 1)
     return tf.cast(res, tf.float32)
   
@@ -1184,14 +1188,14 @@ class CNNKernel(Layer):
     if self.include_det_bits and self.include_det_evts:
       det_bits = inputs[0]
       det_evts = inputs[1]
-      n = det_bits.shape[0]
+      n = arrayops_shape(det_bits, 0)
     else:
       if self.include_det_bits:
         det_bits = inputs
-        n = det_bits.shape[0]
+        n = arrayops_shape(det_bits, 0)
       else:
         det_evts = inputs
-        n = det_evts.shape[0]
+        n = arrayops_shape(det_evts, 0)
 
     if self.include_det_bits:
       res = self.evaluate(det_bits, False)
@@ -1411,14 +1415,14 @@ class CNNKernelWithEmbedding(Layer):
     if self.include_det_bits and self.include_det_evts:
       det_bits = inputs[0]
       det_evts = inputs[1]
-      n = det_bits.shape[0]
+      n = arrayops_shape(det_bits, 0)
     else:
       if self.include_det_bits:
         det_bits = inputs
-        n = det_bits.shape[0]
+        n = arrayops_shape(det_bits, 0)
       else:
         det_evts = inputs
-        n = det_evts.shape[0]
+        n = arrayops_shape(det_evts, 0)
 
     if self.include_det_bits:
       res = self.evaluate(det_bits, False)
@@ -1690,7 +1694,7 @@ class CNNStateCorrelator(Layer):
   
 
   def call(self, inputs):
-    n = inputs[0].shape[0]
+    n = arrayops_shape(inputs[0], 0)
 
     # c_reverse is in [-1, 1]
     c_reverse = []
@@ -1981,7 +1985,7 @@ class RCNNRecurrenceBaseKernel(Layer):
       det_bits = inputs[2]
       det_evts = inputs[3]
     
-    n = old_state.shape[0]
+    n = arrayops_shape(old_state, 0)
 
     triplet_state = tf.reshape(self.embedder_det_bits(tf.reshape(det_bits, shape=(n, self.rounds+1, -1))), shape=(n, -1))
     recurrence_z = tf.matmul(triplet_state*2-1, self.get_mapped_weights(self.kernel_weights_triplet_states, self.kernel_weights_triplet_states_swap_map))
@@ -2380,7 +2384,7 @@ class RCNNKernelCombiner(Layer):
   def eval_final_data_qubit_pred_layer(self, data_qubit_final_preds):
     # We assume data_qubit_final_preds is flat along axis=1 and represents z values.
     if self.nonuniform_response_adj is not None:
-      data_qubit_final_preds = data_qubit_final_preds + tf.repeat(self.nonuniform_response_adj, data_qubit_final_preds.shape[0], axis=0)
+      data_qubit_final_preds = data_qubit_final_preds + tf.repeat(self.nonuniform_response_adj, arrayops_shape(data_qubit_final_preds, 0), axis=0)
     return data_qubit_final_preds
 
 
@@ -2446,7 +2450,7 @@ class RCNNKernelCombiner(Layer):
     data_qubit_idxs_preds.sort()
 
     data_qubit_final_preds = tf.concat(
-      [ tf.reshape(dqp[1], shape=(dqp[1].shape[0],-1)) for dqp in data_qubit_idxs_preds ],
+      [ tf.reshape(dqp[1], shape=(arrayops_shape(dqp[1], 0),-1)) for dqp in data_qubit_idxs_preds ],
       axis=1
     )
     return self.eval_final_data_qubit_pred_layer(data_qubit_final_preds)
@@ -2761,7 +2765,7 @@ class FullCNNModel(Model):
   def eval_final_data_qubit_pred_layer(self, data_qubit_final_preds):
     # We assume data_qubit_final_preds is flat along axis=1
     if self.nonuniform_response_adj is not None:
-      data_qubit_final_preds = data_qubit_final_preds + tf.repeat(self.nonuniform_response_adj, data_qubit_final_preds.shape[0], axis=0)
+      data_qubit_final_preds = data_qubit_final_preds + tf.repeat(self.nonuniform_response_adj, arrayops_shape(data_qubit_final_preds, 0), axis=0)
     return self.data_qubit_pred_eval_layer(data_qubit_final_preds)
 
 
@@ -2782,7 +2786,7 @@ class FullCNNModel(Model):
     translation_coefs_transformed = None
     if self.extended_kernel_output and self.use_translated_kernels:
       translation_coefs_transformed = self.translation_coef_transform_act(self.translation_coef_transform(translation_coefs))
-      translation_coefs_transformed = tf.reshape(translation_coefs_transformed, (translation_coefs_transformed.shape[0], translation_coefs_transformed.shape[1], 1))
+      translation_coefs_transformed = tf.reshape(translation_coefs_transformed, (arrayops_shape(translation_coefs_transformed, 0), arrayops_shape(translation_coefs_transformed, 1), 1))
       if self.extended_kernel_output:
         translation_coefs_transformed = tf.repeat(translation_coefs_transformed, self.kernel_distance**2, axis=2)
 
@@ -2823,12 +2827,13 @@ class FullCNNModel(Model):
           shift_x = k % self.nshifts
           shift_y = k // self.nshifts
           k_shift = shift_y if self.obs_type=="ZL" else shift_x
+          ksh1 = arrayops_shape(kernel_output, 1)
           kernel_output = tf.math.pow(
               kernel_output,
-              1.-translation_coefs_transformed[:,k_shift,0:kernel_output.shape[1]]
+              1.-translation_coefs_transformed[:,k_shift,0:ksh1]
             )*tf.math.pow(
               1.-kernel_output,
-              translation_coefs_transformed[:,k_shift,0:kernel_output.shape[1]]
+              translation_coefs_transformed[:,k_shift,0:ksh1]
             )
         kernel_output = tf.clip_by_value(kernel_output, 1e-6, 1.-1e-6)
         kernel_output = kernel_output/(1.-kernel_output)
@@ -2896,7 +2901,7 @@ class FullCNNModel(Model):
     data_qubit_idxs_preds.sort()
 
     data_qubit_final_preds = tf.concat(
-      [ tf.reshape(dqp[1], shape=(dqp[1].shape[0],-1)) for dqp in data_qubit_idxs_preds ],
+      [ tf.reshape(dqp[1], shape=(arrayops_shape(dqp[1], 0),-1)) for dqp in data_qubit_idxs_preds ],
       axis=1
     )
     eval_dqubit_preds_layer = None
@@ -3115,7 +3120,7 @@ class FullRCNNModel(Model):
 
   
   def get_grouped_det_bits_and_evts_w_final(self, all_inputs):
-    if len(all_inputs[0].shape)==3:
+    if arrayops_rank(all_inputs[0])==3:
       return all_inputs[0], all_inputs[1]
     else:
       binary_t, _, idx_t, _ = get_types(self.code_distance, self.rounds, self.kernel_distance)
@@ -3130,13 +3135,13 @@ class FullRCNNModel(Model):
         make_translation_map=False
       )
       features_det_evts = translate_det_bits_to_det_evts(
-        self.obs_type,
-        self.kernel_distance,
-        features_det_bits,
-        (all_inputs[1][:, -self.n_last_det_evts:] if not use_TF else tf.cast(all_inputs[1][:, -self.n_last_det_evts:], tf.int16)),
+        d=self.code_distance, r=self.rounds, k=self.kernel_distance,
+        obs_type=self.obs_type,
+        det_bits_kxk_all=features_det_bits,
+        final_det_evts=(all_inputs[1][:, -self.n_last_det_evts:] if not use_TF else tf.cast(all_inputs[1][:, -self.n_last_det_evts:], tf.int16))
       )
-      features_det_bits = arrayops_swapaxes(features_det_bits, 0, 1)
-      features_det_evts = arrayops_swapaxes(features_det_evts, 0, 1)
+      features_det_bits = arrayops_swapaxes(features_det_bits, axis1=0, axis2=1, perm=[1, 0, 2])
+      features_det_evts = arrayops_swapaxes(features_det_evts, axis1=0, axis2=1, perm=[1, 0, 2])
       return features_det_bits, features_det_evts
 
 
@@ -3223,7 +3228,7 @@ class FullRCNNModel(Model):
       for psi in psi_list:
         self.decoded_outputs.append(self.decode_state(psi))
       res = tf.stack(self.decoded_outputs, axis=1)
-      res = tf.reshape(res, (res.shape[0], -1))
+      res = tf.reshape(res, (arrayops_shape(res, 0), -1))
     else:
       res = self.decode_state(psi_list[-1])
     return res
