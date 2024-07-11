@@ -618,6 +618,7 @@ class DetectorBitStateEmbedder(Layer):
   def get_transformed_embedding_params(self, n):
     if self.npol>1:
       params_nondiag = tf.math.sigmoid(VariableBounds.clip_zlike(self.embedding_params_nondiag))
+      #params_nondiag = tf.math.sigmoid(self.embedding_params_nondiag)
       params_nondiag = tf.gather(params_nondiag, self.nondiag_param_map, axis=1)
       params_nondiag_p1o2 = (params_nondiag + 1)/2
       params_nondiag = tf.stack(
@@ -788,9 +789,11 @@ class DetectorEventStateEmbedder(Layer):
   def get_transformed_embedding_params(self, n):
     if self.npol>1:
       params_nondiag_positive = tf.math.exp(VariableBounds.clip_zlike(self.embedding_params_nondiag_positive))
+      #params_nondiag_positive = tf.math.exp(self.embedding_params_nondiag_positive)
       params_nondiag_positive = tf.gather(params_nondiag_positive, self.nondiag_param_map, axis=1)
 
       params_nondiag_neutral = tf.math.sigmoid(VariableBounds.clip_zlike(self.embedding_params_nondiag_neutral))
+      #params_nondiag_neutral = tf.math.sigmoid(self.embedding_params_nondiag_neutral)
       params_nondiag_neutral = tf.gather(params_nondiag_neutral, self.nondiag_param_map, axis=1)
       params_nondiag_neutral = ((params_nondiag_positive+1)*params_nondiag_neutral - 1)
 
@@ -956,6 +959,8 @@ class TripletStateProbEmbedder(Layer):
     if self.npol>1:
       params_diag = tf.math.sigmoid(VariableBounds.clip_zlike(self.embedding_params_diag))
       params_nondiag = tf.math.sigmoid(VariableBounds.clip_zlike(self.embedding_params_nondiag))
+      #params_diag = tf.math.sigmoid(self.embedding_params_diag)
+      #params_nondiag = tf.math.sigmoid(self.embedding_params_nondiag)
       if self.diag_param_map is not None:
         params_diag = tf.gather(params_diag, self.diag_param_map, axis=1)
       if self.nondiag_param_map is not None:
@@ -1191,10 +1196,16 @@ class CNNKernel(Layer):
       n = arrayops_shape(det_bits, 0)
     else:
       if self.include_det_bits:
-        det_bits = inputs
+        if isinstance(inputs, list):
+          det_bits = inputs[0]
+        else:
+          det_bits = inputs
         n = arrayops_shape(det_bits, 0)
       else:
-        det_evts = inputs
+        if isinstance(inputs, list):
+          det_evts = inputs[0]
+        else:
+          det_evts = inputs
         n = arrayops_shape(det_evts, 0)
 
     if self.include_det_bits:
@@ -1420,10 +1431,16 @@ class CNNKernelWithEmbedding(Layer):
       n = arrayops_shape(det_bits, 0)
     else:
       if self.include_det_bits:
-        det_bits = inputs
+        if isinstance(inputs, list):
+          det_bits = inputs[0]
+        else:
+          det_bits = inputs
         n = arrayops_shape(det_bits, 0)
       else:
-        det_evts = inputs
+        if isinstance(inputs, list):
+          det_evts = inputs[0]
+        else:
+          det_evts = inputs
         n = arrayops_shape(det_evts, 0)
 
     if self.include_det_bits:
@@ -1813,6 +1830,13 @@ class RCNNEmbeddedKernelChooser:
 
 
 class RCNNInitialStateKernel(Layer):
+  rounds_first = 1
+
+  @staticmethod
+  def set_rounds_first(val):
+    RCNNInitialStateKernel.rounds_first = val
+  
+  
   def __init__(
       self,
       kernel_parity,
@@ -1822,16 +1846,15 @@ class RCNNInitialStateKernel(Layer):
       **kwargs
     ):
     super(RCNNInitialStateKernel, self).__init__(**kwargs)
-    self.rounds_first = 1
     self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
       kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
-      rounds = self.rounds_first,
+      rounds = RCNNInitialStateKernel.rounds_first,
       npol = npol,
       do_all_data_qubits = True,
       include_det_bits = True,
-      include_det_evts = (self.rounds_first>1),
+      include_det_evts = (RCNNInitialStateKernel.rounds_first>1),
       n_remove_last_det_evts = (kernel_distance**2 - 1)//2,
       discard_activation = False,
       discard_bias = True,
@@ -1861,6 +1884,13 @@ class RCNNInitialStateKernel(Layer):
 
 
 class RCNNInitialDoubletStateKernel(Layer):
+  rounds_first = 2
+
+  @staticmethod
+  def set_rounds_first(val):
+    RCNNInitialDoubletStateKernel.rounds_first = val
+  
+  
   def __init__(
       self,
       kernel_parity,
@@ -1870,16 +1900,15 @@ class RCNNInitialDoubletStateKernel(Layer):
       **kwargs
     ):
     super(RCNNInitialDoubletStateKernel, self).__init__(**kwargs)
-    self.rounds_first = 2
     self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
       kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
-      rounds = self.rounds_first,
+      rounds = RCNNInitialDoubletStateKernel.rounds_first,
       npol = npol,
       do_all_data_qubits = True,
       include_det_bits = True,
-      include_det_evts = (self.rounds_first>1),
+      include_det_evts = (RCNNInitialDoubletStateKernel.rounds_first>1),
       n_remove_last_det_evts = (kernel_distance**2 - 1)//2,
       discard_activation = False,
       discard_bias = True,
@@ -2066,6 +2095,14 @@ class RCNNRecurrenceBaseKernel(Layer):
 # Both kernels process the previous state and the initial state,
 # but only in RCNNRecurrenceKernel is the previous state obtained from another recurrent-style kernel.
 class RCNNLeadInKernel(RCNNRecurrenceBaseKernel):
+  ignore_initial_state = False
+
+
+  @staticmethod
+  def set_ignore_initial_state(flag):
+    RCNNLeadInKernel.ignore_initial_state = flag
+
+  
   def __init__(
       self,
       kernel_parity,
@@ -2081,7 +2118,7 @@ class RCNNLeadInKernel(RCNNRecurrenceBaseKernel):
       append_name = "RCNNLeadInKernel",
       npol = npol,
       use_exp_act = use_exp_act,
-      include_initial_state = True,
+      include_initial_state = not RCNNLeadInKernel.ignore_initial_state,
       **kwargs
     )
 class RCNNRecurrenceKernel(RCNNRecurrenceBaseKernel):
@@ -2478,6 +2515,7 @@ class RCNNKernelCombiner(Layer):
       two_phase_values = None
       if frac_params is not None:
         frac_values = self.frac_activation(VariableBounds.clip_zlike(frac_params))
+        #frac_values = tf.clip_by_value(self.frac_activation(frac_params), 1e-6, 1.-1e-6)
       if phase_params is not None:
         two_phase_values = self.phase_activation(phase_params)*2
 
@@ -2523,6 +2561,7 @@ class RCNNKernelCombiner(Layer):
               iphase += 1
               sum_kouts = sum_kouts + tf.sqrt(sum_inputs[idx_i1]*sum_inputs[idx_i2])*two_cos_phase
         sum_kouts = tf.math.log(VariableBounds.clip_exp(sum_kouts))
+        #sum_kouts = tf.math.log(tf.clip_by_value(sum_kouts, 1e-9, 1e9))
         data_qubit_idxs_preds.append([idq, sum_kouts])
     data_qubit_idxs_preds.sort()
 
@@ -2930,6 +2969,7 @@ class FullCNNModel(Model):
               translation_coefs_transformed[:,k_shift,0:ksh1]
             )
         kernel_output = VariableBounds.clip_prob(kernel_output)
+        #kernel_output = tf.clip_by_value(kernel_output, 1e-6, 1.-1e-6)
         kernel_output = kernel_output/(1.-kernel_output)
         if kernel_eval_adj is not None:
           kernel_output = kernel_output * kernel_eval_adj[k]
@@ -2945,6 +2985,7 @@ class FullCNNModel(Model):
       phase_values = None
       if frac_params is not None:
         frac_values = self.frac_activation(VariableBounds.clip_zlike(frac_params))
+        #frac_values = tf.clip_by_value(self.frac_activation(frac_params), 1e-6, 1.-1e-6)
       if phase_params is not None:
         phase_values = self.phase_activation(phase_params)
 
@@ -2991,6 +3032,7 @@ class FullCNNModel(Model):
               sum_kouts = sum_kouts + 2*tf.sqrt(sum_inputs[idx_i1]*sum_inputs[idx_i2])*cos_phase
         #sum_kouts = sum_kouts/(1.+sum_kouts)
         sum_kouts = tf.math.log(VariableBounds.clip_exp(sum_kouts))
+        #sum_kouts = tf.math.log(tf.clip_by_value(sum_kouts, 1e-9, 1e9))
         data_qubit_idxs_preds.append([idq, sum_kouts])
     data_qubit_idxs_preds.sort()
 
@@ -3020,6 +3062,7 @@ class FullRCNNModel(Model):
       has_nonuniform_response = False,
       do_all_data_qubits = False,
       return_all_rounds = False,
+      separate_first_round = False,
       **kwargs
     ):
     """
@@ -3044,6 +3087,7 @@ class FullRCNNModel(Model):
     - has_nonuniform_response: Whether to include a non-uniform response adjustment.
     - do_all_data_qubits: Whether to output all data qubit predictions over the full surface code.
     - return_all_rounds: Whether to return predictions for all rounds.
+    - separate_first_round: By default, there is no prediction for the first round. If this flag is true, there will be one.
     - kwargs: Additional arguments to pass to the Model class.
     Output:
     - FullRCNNModel object, which inherits from the Model class.
@@ -3068,13 +3112,17 @@ class FullRCNNModel(Model):
       self.stop_round = None
     self.has_nonuniform_response = has_nonuniform_response
     self.return_all_rounds = return_all_rounds
+    self.separate_first_round = separate_first_round
+    self.first_round_offset = (0 if self.separate_first_round else 1)
 
-    RCNNFinalStateKernel.set_ignore_initial_state(self.rounds<=2)
+    RCNNInitialStateKernel.set_rounds_first(2 if not self.separate_first_round else 1)
+    RCNNLeadInKernel.set_ignore_initial_state(not self.separate_first_round)
+    RCNNFinalStateKernel.set_ignore_initial_state(self.rounds<=1+self.first_round_offset)
 
-    if self.rounds<1:
-      raise RuntimeError("The number of rounds must be at least 1.")
-    if self.stop_round is not None and self.stop_round<1:
-      raise RuntimeError("The stop round must be at least 1.")
+    if self.rounds<1+self.first_round_offset:
+      raise RuntimeError(f"The number of rounds must be at least {1+self.first_round_offset}.")
+    if self.stop_round is not None and self.stop_round<1+self.first_round_offset:
+      raise RuntimeError(f"The stop round must be at least {1+self.first_round_offset}.")
 
     self.state_shift_map = []
     for shifty in range(self.nshifts):
@@ -3099,13 +3147,14 @@ class FullRCNNModel(Model):
     self.layer_recurrence = None
     self.layer_final_state = None
     if self.rounds>1:
-      self.layer_initial_doublet = RCNNInitialDoubletStateKernelCombiner(
-        obs_type = self.obs_type,
-        code_distance = self.code_distance,
-        kernel_distance = self.kernel_distance,
-        npol = self.npol,
-        has_nonuniform_response = self.has_nonuniform_response
-      )
+      if self.separate_first_round:
+        self.layer_initial_doublet = RCNNInitialDoubletStateKernelCombiner(
+          obs_type = self.obs_type,
+          code_distance = self.code_distance,
+          kernel_distance = self.kernel_distance,
+          npol = self.npol,
+          has_nonuniform_response = self.has_nonuniform_response
+        )
       if self.rounds>2:
         self.layer_lead_in = RCNNLeadInKernelCombiner(
           obs_type = self.obs_type,
@@ -3167,7 +3216,8 @@ class FullRCNNModel(Model):
         "npol": self.npol,
         "stop_round": self.stop_round,
         "has_nonuniform_response": self.has_nonuniform_response,
-        "return_all_rounds": self.return_all_rounds
+        "return_all_rounds": self.return_all_rounds,
+        "separate_first_round": self.separate_first_round
       }
     )
     return config
@@ -3181,8 +3231,8 @@ class FullRCNNModel(Model):
     That should work given that this is a recurrent architecture.
     """
     self.rounds = rounds
-    if self.rounds<1:
-      raise ValueError(f"Invalid rounds value {self.rounds}. Must be at least 1.")
+    if self.rounds<1+self.first_round_offset:
+      raise ValueError(f"Invalid rounds value {self.rounds}. Must be at least {1+self.first_round_offset}.")
     if self.stop_round is not None:
       if self.stop_round>self.rounds:
         raise ValueError(f"Invalid stop_round value {self.stop_round}. Please also reset stop_round.")
@@ -3198,8 +3248,8 @@ class FullRCNNModel(Model):
     Any valid integer value will disable the final state layer.
     """
     self.stop_round = stop_round
-    if self.stop_round is not None and (self.stop_round>self.rounds or self.stop_round<1):
-      raise ValueError(f"Invalid stop_round value {self.stop_round}. Must be within [1, {self.rounds}].")
+    if self.stop_round is not None and (self.stop_round>self.rounds or self.stop_round<1+self.first_round_offset):
+      raise ValueError(f"Invalid stop_round value {self.stop_round}. Must be within [{1+self.first_round_offset}, {self.rounds}].")
 
 
   def decode_state(self, psi):
@@ -3290,7 +3340,7 @@ class FullRCNNModel(Model):
     self.decoded_outputs = []
 
     psi_list = []
-    for r in range(self.rounds+1):
+    for r in range(self.rounds+1-self.first_round_offset):
       this_layer = None
       this_bits = None
       this_evts = None
@@ -3298,16 +3348,16 @@ class FullRCNNModel(Model):
       initial_state = None
       if r==0:
         this_layer = self.layer_initial_state
-        this_bits = det_bits[:,:,:self.kernel_n_ancillas]
-        this_evts = None
-      elif r==1:
+        this_bits = det_bits[:,:,:self.kernel_n_ancillas*(1+self.first_round_offset)]
+        this_evts = None if self.separate_first_round else det_evts_w_final[:,:,:self.kernel_half_n_ancillas*3]
+      elif r==1 and self.separate_first_round:
         this_layer = self.layer_initial_doublet
         this_bits = det_bits[:,:,:self.kernel_n_ancillas*2]
         this_evts = det_evts_w_final[:,:,:self.kernel_half_n_ancillas*3]
-      elif r<self.rounds:
-        this_layer = self.layer_lead_in if r==2 else self.layer_recurrence
-        this_bits = det_bits[:,:,self.kernel_n_ancillas*(r-2):self.kernel_n_ancillas*(r+1)]
-        this_evts = det_evts_w_final[:,:,self.kernel_half_n_ancillas + self.kernel_n_ancillas*(r-2):self.kernel_half_n_ancillas + self.kernel_n_ancillas*r]
+      elif r<self.rounds-self.first_round_offset:
+        this_layer = self.layer_lead_in if r==2-self.first_round_offset else self.layer_recurrence
+        this_bits = det_bits[:,:,self.kernel_n_ancillas*(r-2+self.first_round_offset):self.kernel_n_ancillas*(r+1+self.first_round_offset)]
+        this_evts = det_evts_w_final[:,:,self.kernel_half_n_ancillas + self.kernel_n_ancillas*(r-2+self.first_round_offset):self.kernel_half_n_ancillas + self.kernel_n_ancillas*(r+self.first_round_offset)]
       else:
         this_layer = self.layer_final_state
         this_bits = det_bits[:,:,-self.kernel_n_ancillas*2:]
@@ -3330,7 +3380,7 @@ class FullRCNNModel(Model):
 
       psi_list.append(this_layer(this_inputs))
 
-      if self.stop_round is not None and r==self.stop_round-1:
+      if self.stop_round is not None and r==self.stop_round-1-self.first_round_offset:
         break
 
     res = None
