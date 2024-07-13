@@ -3052,7 +3052,16 @@ class FullCNNModel(Model):
 
 
 
+class FullRCNNModelEnums:
+  prob_no_acc = 0
+  prob_undecoded_acc = 1
+  prob_decoded_acc = 2
 class FullRCNNModel(Model):
+  prob_no_acc = 0
+  prob_undecoded_acc = 1
+  prob_decoded_acc = 2
+  
+  
   def __init__(
       self,
       obs_type, code_distance, kernel_distance, rounds,
@@ -3063,6 +3072,7 @@ class FullRCNNModel(Model):
       do_all_data_qubits = False,
       return_all_rounds = False,
       separate_first_round = False,
+      probability_accumulation_mode = FullRCNNModelEnums.prob_no_acc,
       **kwargs
     ):
     """
@@ -3088,6 +3098,18 @@ class FullRCNNModel(Model):
     - do_all_data_qubits: Whether to output all data qubit predictions over the full surface code.
     - return_all_rounds: Whether to return predictions for all rounds.
     - separate_first_round: By default, there is no prediction for the first round. If this flag is true, there will be one.
+    - probability_accumulation_mode: Probability accumulation mode.
+      By default (prob_no_acc), the probability of an error is predicted using
+        p'(z) = sigmoid(z)
+      for the z of that layer.
+      If prob_undecoded_acc is chosen, an effective z' is computed before applying the decoding layer such that
+        z'[t=0] = z[t=0],
+        p'(z'[t]) = p(z[t])*(1-p'(z'[t-1])) + p'(z'[t-1])*(1-p(z[t])) for t>0,
+      and decoding is performed over z'[t].
+      If, instead, prob_decoded_acc is chosen, the final probability is computed after applying the decoding layer with
+        p'[t=0] = p(z[t=0]),
+        p'[t] = p(z[t])*(1-p'[t-1]) + p'[t-1]*(1-p(z[t]) for t>0,
+      making p(z[t]) from the decoded layer output the evolution probability for each time step t.
     - kwargs: Additional arguments to pass to the Model class.
     Output:
     - FullRCNNModel object, which inherits from the Model class.
@@ -3113,6 +3135,7 @@ class FullRCNNModel(Model):
     self.has_nonuniform_response = has_nonuniform_response
     self.return_all_rounds = return_all_rounds
     self.separate_first_round = separate_first_round
+    self.probability_accumulation_mode = probability_accumulation_mode
     self.first_round_offset = (0 if self.separate_first_round else 1)
 
     RCNNInitialStateKernel.set_rounds_first(2 if not self.separate_first_round else 1)
@@ -3200,10 +3223,10 @@ class FullRCNNModel(Model):
       self.layers_decoder.append(Dense(noutputs, activation="sigmoid"))
     else:
       self.layers_decoder.append(tf.keras.layers.Activation('sigmoid'))
-  
+
     self.decoded_outputs = []
 
-  
+
   def get_config(self):
     config = super().get_config()
     config.update(
@@ -3217,7 +3240,8 @@ class FullRCNNModel(Model):
         "stop_round": self.stop_round,
         "has_nonuniform_response": self.has_nonuniform_response,
         "return_all_rounds": self.return_all_rounds,
-        "separate_first_round": self.separate_first_round
+        "separate_first_round": self.separate_first_round,
+        "probability_accumulation_mode": self.probability_accumulation_mode
       }
     )
     return config
@@ -3252,6 +3276,13 @@ class FullRCNNModel(Model):
       raise ValueError(f"Invalid stop_round value {self.stop_round}. Must be within [{1+self.first_round_offset}, {self.rounds}].")
 
 
+  def set_probability_accumulation_mode(self, mode):
+    """
+    Set the probability accumulation mode.
+    """
+    self.probability_accumulation_mode = mode
+
+
   def decode_state(self, psi):
     """
     Decode the z-like state psi to a probability-like quantity.
@@ -3273,6 +3304,10 @@ class FullRCNNModel(Model):
 
   
   def get_grouped_det_bits_and_evts_w_final(self, all_inputs):
+    """
+    Group the stabilizer measurements and detector events into kernels if this is not done already.
+    See the call() function for further details on the conventions of the function argument all_inputs.
+    """
     if arrayops_rank(all_inputs[0])==3:
       return all_inputs[0], all_inputs[1]
     else:
@@ -3303,7 +3338,7 @@ class FullRCNNModel(Model):
     Run the model for all rounds and return the final prediction.
     Let's denote the number of rounds with r, the code distance with d, and the kernel distance with k for the rest of the description.
     Arguments:
-    - all_inputs: A list of input tensors. There are two conventions.
+    - all_inputs: A list of input tensors. There are two possible conventions, determined by the shape of the inputs.
       1) Inputs preprocessed for kernel groupings:
       * all_inputs[0] = det_bits[batch size : kernel stride size : r*(k^2-1)]
         => Stabilizer measurements groupe by kernel strides.
@@ -3378,17 +3413,29 @@ class FullRCNNModel(Model):
       if this_evts is not None:
         this_inputs.append(this_evts)
 
-      psi_list.append(this_layer(this_inputs))
+      this_psi = this_layer(this_inputs)
+      if self.probability_accumulation_mode==FullRCNNModelEnums.prob_undecoded_acc and r>0:
+        this_p = tf.math.sigmoid(this_psi)
+        prev_p = tf.math.sigmoid(psi_list[-1])
+        this_p = VariableBounds.clip_prob(this_p*(-prev_p+1) + (-this_p+1)*prev_p)
+        this_psi = tf.math.log(this_p/(-this_p+1))
+      psi_list.append(this_psi)
 
       if self.stop_round is not None and r==self.stop_round-1-self.first_round_offset:
         break
 
     res = None
-    if self.return_all_rounds:
+    if self.return_all_rounds or self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
       for psi in psi_list:
         self.decoded_outputs.append(self.decode_state(psi))
+      if self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
+        for iout in range(1, len(self.decoded_outputs)):
+          self.decoded_outputs[iout] = self.decoded_outputs[iout]*(-self.decoded_outputs[iout-1]+1) + self.decoded_outputs[iout-1]*(-self.decoded_outputs[iout]+1)
+    if self.return_all_rounds:
       res = tf.stack(self.decoded_outputs, axis=1)
       res = tf.reshape(res, (arrayops_shape(res, 0), -1))
+    elif self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
+      res = self.decoded_outputs[-1]
     else:
       res = self.decode_state(psi_list[-1])
     return res
