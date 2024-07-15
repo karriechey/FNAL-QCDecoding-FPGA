@@ -3778,7 +3778,7 @@ class FullRCNNModel(Model):
         this_psi = tf.math.log(this_p/(-this_p+1))
       psi_list.append(this_psi)
       if self.return_all_rounds or self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
-        self.decoded_outputs.append(self.decode_state(this_psi), idecoder)
+        self.decoded_outputs.append(self.decode_state(this_psi, idecoder))
 
       if self.stop_round is not None and r==self.stop_round-1-self.first_round_offset:
         break
