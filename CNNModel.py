@@ -2625,6 +2625,7 @@ class RCNNKernelCombiner(Layer):
       obs_type,
       code_distance, kernel_distance,
       npol = 1,
+      allow_inversion = False,
       has_nonuniform_response = False,
       **kwargs
     ):
@@ -2634,6 +2635,7 @@ class RCNNKernelCombiner(Layer):
     self.kernel_distance = kernel_distance
     self.kernel_half_distance = kernel_distance//2
     self.nshifts = self.code_distance - self.kernel_distance + 1
+    self.allow_inversion = allow_inversion
     self.has_nonuniform_response = has_nonuniform_response
 
     self.unique_kernel_types = get_unique_kernel_types(self.kernel_distance, code_distance)
@@ -2655,7 +2657,7 @@ class RCNNKernelCombiner(Layer):
           jy = self.kernel_half_distance+iy
           if shifty+jy<0:
             continue
-          for kx in range(-self.kernel_half_distance,self.kernel_half_distance+1):
+          for kx in range(-self.kernel_half_distance, self.kernel_half_distance+1):
             ix = kx if not flip_x else -kx
             jx = self.kernel_half_distance+ix
             if shiftx+jx<0:
@@ -2702,6 +2704,7 @@ class RCNNKernelCombiner(Layer):
 
     total_nfracs = 0
     total_nphases = 0
+    total_inverters = 0
     self.frac_params = []
     self.phase_params = []
     for iudkc, udkc in enumerate(self.unique_dqubit_kernel_contribs):
@@ -2713,6 +2716,7 @@ class RCNNKernelCombiner(Layer):
       nph = np*(np-1)//2
       total_nfracs += nfr
       total_nphases += nph
+      total_inverters += np
       if nfr>0:
         udkc.append(
           self.add_weight(
@@ -2735,10 +2739,24 @@ class RCNNKernelCombiner(Layer):
         )
       else:
         udkc.append(None)
+      if self.allow_inversion:
+        udkc.append(
+          self.add_weight(
+            name=f"Inverter_{iudkc}",
+            shape=[ np ],
+            initializer=tf.keras.initializers.Constant(0.549306), # = atanh(1/2)
+            trainable=True
+          )
+        )
+      else:
+        udkc.append(None)
+
     print(f"Total number of fractions: {total_nfracs}")
     print(f"Total number of phases: {total_nphases}")
+    print(f"Total number of inverters: {total_inverters}")
     self.frac_activation = tf.math.sigmoid # We need a value between 0 and 1.
     self.phase_activation = tf.math.tanh # We actually need cos(phi).
+    self.inverter_activation = tf.math.tanh # We actually need 2*tanh, but we will deal with it later.
 
     self.nonuniform_response_adj = None
     if self.has_nonuniform_response:
@@ -2758,6 +2776,7 @@ class RCNNKernelCombiner(Layer):
         'code_distance': self.code_distance,
         'kernel_distance': self.kernel_distance,
         'npol': self.kernel_collector.npol,
+        'allow_inversion': self.allow_inversion,
         'has_nonuniform_response': self.has_nonuniform_response
         # That is it. We do not need to save the kernel_collector since this is a base class with a collector that is explicitly defined in daughters.
       }
@@ -2781,13 +2800,17 @@ class RCNNKernelCombiner(Layer):
       data_qubit_idxs = udkc[1]
       frac_params = udkc[2]
       phase_params = udkc[3]
+      inverter_params = udkc[4]
       frac_values = None
       two_phase_values = None
+      inverter_values = None
       if frac_params is not None:
         frac_values = self.frac_activation(VariableBounds.clip_zlike(frac_params))
         #frac_values = tf.clip_by_value(self.frac_activation(frac_params), 1e-6, 1.-1e-6)
       if phase_params is not None:
         two_phase_values = self.phase_activation(phase_params)*2
+      if inverter_params is not None:
+        inverter_values = self.inverter_activation(inverter_params)*2
 
       for idq_idkqs in data_qubit_idxs:
         idq = idq_idkqs[0]
@@ -2800,10 +2823,13 @@ class RCNNKernelCombiner(Layer):
           for ikq_idxkq in idkq:
             ikq = ikq_idxkq[0]
             idxkq = ikq_idxkq[1]
+            single_kernout = kernel_outputs[ikq][:,idxkq]
+            if inverter_values is not None:
+              single_kernout = tf.math.pow(single_kernout, inverter_values[iktype])
             if kout is None:
-              kout = kernel_outputs[ikq][:,idxkq]
+              kout = single_kernout
             else:
-              kout = kout + kernel_outputs[ikq][:,idxkq]
+              kout = kout + single_kernout
           if frac_params is not None:
             frac = None
             for ifrac in range(min(frac_params.shape[0],iktype+1)):
@@ -2828,8 +2854,8 @@ class RCNNKernelCombiner(Layer):
           for idx_i1 in range(n_sum_inputs):
             for idx_i2 in range(idx_i1+1, n_sum_inputs):
               two_cos_phase = two_phase_values[iphase]
-              iphase += 1
               sum_kouts = sum_kouts + tf.sqrt(sum_inputs[idx_i1]*sum_inputs[idx_i2])*two_cos_phase
+              iphase += 1
         sum_kouts = tf.math.log(VariableBounds.clip_exp(sum_kouts))
         #sum_kouts = tf.math.log(tf.clip_by_value(sum_kouts, 1e-9, 1e9))
         data_qubit_idxs_preds.append([idq, sum_kouts])
@@ -2849,6 +2875,7 @@ class RCNNInitialStateKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol = 1,
+      allow_inversion = False,
       has_nonuniform_response = False,
       **kwargs
     ):
@@ -2857,6 +2884,7 @@ class RCNNInitialStateKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol,
+      allow_inversion,
       has_nonuniform_response,
       **kwargs
     )
@@ -2866,6 +2894,7 @@ class RCNNInitialDoubletStateKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol = 1,
+      allow_inversion = False,
       has_nonuniform_response = False,
       **kwargs
     ):
@@ -2874,6 +2903,7 @@ class RCNNInitialDoubletStateKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol,
+      allow_inversion,
       has_nonuniform_response,
       **kwargs
     )
@@ -2883,6 +2913,7 @@ class RCNNLeadInKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol = 1,
+      allow_inversion = False,
       has_nonuniform_response = False,
       **kwargs
     ):
@@ -2891,6 +2922,7 @@ class RCNNLeadInKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol,
+      allow_inversion,
       has_nonuniform_response,
       **kwargs
     )
@@ -2900,6 +2932,7 @@ class RCNNRecurrenceKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol = 1,
+      allow_inversion = False,
       has_nonuniform_response = False,
       **kwargs
     ):
@@ -2908,6 +2941,7 @@ class RCNNRecurrenceKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol,
+      allow_inversion,
       has_nonuniform_response,
       **kwargs
     )
@@ -2917,6 +2951,7 @@ class RCNNFinalStateKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol = 1,
+      allow_inversion = False,
       has_nonuniform_response = False,
       **kwargs
     ):
@@ -2925,6 +2960,7 @@ class RCNNFinalStateKernelCombiner(RCNNKernelCombiner):
       obs_type,
       code_distance, kernel_distance,
       npol,
+      allow_inversion,
       has_nonuniform_response,
       **kwargs
     )
@@ -3398,6 +3434,7 @@ class FullRCNNModel(Model):
       do_all_data_qubits = False,
       return_all_rounds = False,
       separate_first_round = False,
+      allow_combiner_inversion = False,
       decode_per_state_layer = False,
       probability_accumulation_mode = FullRCNNModelEnums.prob_no_acc,
       **kwargs
@@ -3425,6 +3462,7 @@ class FullRCNNModel(Model):
     - do_all_data_qubits: Whether to output all data qubit predictions over the full surface code.
     - return_all_rounds: Whether to return predictions for all rounds.
     - separate_first_round: By default, there is no prediction for the first round. If this flag is true, there will be one.
+    - allow_combiner_inversion: Whether to allow the combiner to include the option to invert the kernel outputs. This option is disabled by default.
     - decode_per_state_layer: By default, we use one type of a decoder layer to decode all states.
       If this flag is True, separate decoder layers will be used for each state type.
     - probability_accumulation_mode: Probability accumulation mode.
@@ -3465,6 +3503,7 @@ class FullRCNNModel(Model):
     self.do_all_data_qubits = do_all_data_qubits
     self.return_all_rounds = return_all_rounds
     self.separate_first_round = separate_first_round
+    self.allow_combiner_inversion = allow_combiner_inversion
     self.probability_accumulation_mode = probability_accumulation_mode
     self.decode_per_state_layer = decode_per_state_layer and (self.return_all_rounds or self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc)
 
@@ -3496,6 +3535,7 @@ class FullRCNNModel(Model):
       code_distance = self.code_distance,
       kernel_distance = self.kernel_distance,
       npol = self.npol,
+      allow_inversion = self.allow_combiner_inversion,
       has_nonuniform_response = self.has_nonuniform_response
     )
     self.state_decoders.append(
@@ -3516,6 +3556,7 @@ class FullRCNNModel(Model):
           code_distance = self.code_distance,
           kernel_distance = self.kernel_distance,
           npol = self.npol,
+          allow_inversion = self.allow_combiner_inversion,
           has_nonuniform_response = self.has_nonuniform_response
         )
         if self.decode_per_state_layer:
@@ -3532,6 +3573,7 @@ class FullRCNNModel(Model):
           code_distance = self.code_distance,
           kernel_distance = self.kernel_distance,
           npol = self.npol,
+          allow_inversion = self.allow_combiner_inversion,
           has_nonuniform_response = self.has_nonuniform_response
         )
         if self.decode_per_state_layer:
@@ -3548,6 +3590,7 @@ class FullRCNNModel(Model):
             code_distance = self.code_distance,
             kernel_distance = self.kernel_distance,
             npol = self.npol,
+            allow_inversion = self.allow_combiner_inversion,
             has_nonuniform_response = self.has_nonuniform_response
           )
           if self.decode_per_state_layer:
@@ -3564,6 +3607,7 @@ class FullRCNNModel(Model):
         code_distance = self.code_distance,
         kernel_distance = self.kernel_distance,
         npol = self.npol,
+        allow_inversion = self.allow_combiner_inversion,
         has_nonuniform_response = self.has_nonuniform_response
       )
       if self.decode_per_state_layer:
@@ -3593,6 +3637,7 @@ class FullRCNNModel(Model):
         "do_all_data_qubits": self.do_all_data_qubits,
         "return_all_rounds": self.return_all_rounds,
         "separate_first_round": self.separate_first_round,
+        "allow_combiner_inversion": self.allow_combiner_inversion,
         "decode_per_state_layer": self.decode_per_state_layer,
         "probability_accumulation_mode": self.probability_accumulation_mode
       }
