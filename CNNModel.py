@@ -1899,7 +1899,11 @@ class CNNStateDenseCorrelator(Layer):
           self.triangular_polmap_states.append(ix+iy*ndim)
 
     self.output_map = get_layer_output_map(self.distance, self.is_symmetric)
-    self.output_weight_map = get_states_perround_map(self.distance, self.rounds, self.npol, self.is_symmetric)
+    self.output_weight_map = get_states_perround_map(self.distance, self.rounds, 1, self.is_symmetric)
+    if self.npol>1:
+      output_weight_map_npol = get_states_perround_map(self.distance, self.rounds, self.npol, self.is_symmetric)
+      for i in range(len(self.output_weight_map)):
+        self.output_weight_map[i][1].extend([ v+ndim for v in output_weight_map_npol[i][1] ])
 
     self.hidden_layers = []
     if hidden_specs is not None:
@@ -1944,7 +1948,14 @@ class CNNStateDenseCorrelator(Layer):
       n = arrayops_shape(states, 0)
       mm = tf.reshape(states, shape=(n, -1, 1))
       mmt = tf.transpose(mm, perm=[0, 2, 1])
-      return tf.gather(tf.reshape(tf.matmul(mm, mmt), shape=(n, -1)), self.triangular_polmap_states, axis=1)
+      # Note that a full quadratic representation contains terms of the form x_i*x_j as well as x_i alone.
+      return tf.concat(
+        [
+          states,
+          tf.gather(tf.reshape(tf.matmul(mm, mmt), shape=(n, -1)), self.triangular_polmap_states, axis=1)
+        ],
+        axis=1
+      )
     
   
   def apply_final_activation(self, z):
