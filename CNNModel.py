@@ -174,6 +174,66 @@ def get_detector_bits_perround_map(d, r, npol, is_symmetric, ignore_diagonal=Fal
   return res
 
 
+def get_states_perround_map(d, r, npol, is_symmetric):
+  """
+  get_states_perround_map: Get the mapping of the states to the output qubits.
+  If we have a linear map
+  States (i) [i<Ndq] -> W_ij -> Data qubit (j) [j<Ndq]
+  with npol=1,
+  the result will be the list
+  [[ j, [{0, ... , Ndq-1} x rounds] ]]
+  for each j<Ndq, except if is_symmetric is True and j is in the second, symmetrized half of the data qubits.
+  In that case, the list would contain
+  [[ j_sym, [{Ndq-1, ... , 0} x rounds]]]
+  for j_sym being the index of the symmetrized data qubit.
+  If npol>1, we assume a quadratic form between states i1 and i2, but the rules to reverse or not are the same as above.
+  """
+  n_states = d**2
+  outmap = get_layer_output_map(d, is_symmetric)
+  res = []
+
+  states_unswap_map = None
+  if npol>1:
+    states_unswap_map = []
+    for iy in range(n_states*r):
+      for ix in range(iy, n_states*r):
+        states_unswap_map.append(ix+iy*n_states*r - (iy*(iy+1))//2)
+  else:
+    states_unswap_map = [ q for q in range(n_states*r) ]
+
+  if is_symmetric:
+    states_swap_map = []
+    if npol>1:
+      for iiy in range(n_states*r):
+        rry = iiy//n_states
+        iy = iiy%n_states
+        for iix in range(iiy, n_states*r):
+          rrx = iix//n_states
+          ix = iix%n_states
+          oy = (n_states-1-iy) + rry*n_states
+          ox = (n_states-1-ix) + rrx*n_states
+          if ox<oy:
+            ox, oy = oy, ox
+          states_swap_map.append(ox+oy*n_states*r - (oy*(oy+1))//2)
+    else:
+      for rr in range(r):
+        states_swap_map.extend([ n_states-1-q + rr*n_states for q in range(n_states) ])
+    for iy in range(d):
+      for ix in range(d):
+        is_swapped = not (ix>iy or (ix==iy and ix<(d+1)//2))
+        jout = outmap[iy*d+ix]
+        ilist = states_unswap_map
+        if is_swapped:
+          ilist = states_swap_map
+        res.append([ jout, ilist ])
+  else:
+    for iy in range(d):
+      for ix in range(d):
+        jout = outmap[iy*d+ix]
+        res.append([ jout, states_unswap_map ])
+  return res
+
+
 def get_triplet_states_perround_map(d, r, npol, is_symmetric, ignore_diagonal=False):
   """
   get_triplet_states_perround_map: Get the mapping of the input triplet states to the output qubits.
@@ -1811,26 +1871,230 @@ class CNNStateCorrelator(Layer):
 
 
 
+class CNNStateDenseCorrelator(Layer):
+  def __init__(
+    self,
+    distance,
+    rounds,
+    is_symmetric,
+    hidden_specs,
+    npol = 1,
+    use_exp_act = True,
+    **kwargs
+  ):
+    super(CNNStateDenseCorrelator, self).__init__(**kwargs)
+    self.distance = distance
+    self.rounds = rounds
+    self.npol = npol
+    self.is_symmetric = is_symmetric
+    self.hidden_specs = hidden_specs
+    self.use_exp_act = use_exp_act
+
+    ndim = self.distance**2 * self.rounds
+    self.triangular_polmap_states = None
+    if self.npol>1:
+      self.triangular_polmap_states = []
+      for iy in range(ndim):
+        for ix in range(iy, ndim):
+          self.triangular_polmap_states.append(ix+iy*ndim)
+
+    self.output_map = get_layer_output_map(self.distance, self.is_symmetric)
+    self.output_weight_map = get_states_perround_map(self.distance, self.rounds, self.npol, self.is_symmetric)
+
+    self.hidden_layers = []
+    if hidden_specs is not None:
+      for hl in hidden_specs:
+        if type(hl)==int:
+          self.hidden_layers.append(Dense(hl, activation="relu"))
+        elif type(hl)==dict:
+          is_activation = hl["is_activation"] if "is_activation" in hl else False
+          if not is_activation:
+            n_nodes = hl["n_nodes"] # Mandatory
+            has_activation = hl["has_activation"] if "has_activation" in hl else True
+            activation = None
+            if has_activation:
+              activation = hl["activation"] if "activation" in hl else "relu"
+            self.hidden_layers.append(Dense(n_nodes, activation=activation))
+          else:
+            self.hidden_layers.append(hl["activation"])
+    num_outputs = self.distance**2 if not self.is_symmetric else (self.distance**2 + 1)//2
+    self.hidden_layers.append(Dense(num_outputs, activation=None))
+    self.output_act = tf.keras.activations.sigmoid if not self.use_exp_act else tf.keras.activations.exponential
+
+  
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'distance': self.distance,
+        'rounds': self.rounds,
+        'is_symmetric': self.is_symmetric,
+        'hidden_specs': self.hidden_specs,
+        'npol': self.npol,
+        'use_exp_act': self.use_exp_act
+      }
+    )
+    return config
+
+
+  def transform_states(self, states):
+    if self.npol==1:
+      return states
+    else:
+      n = arrayops_shape(states, 0)
+      mm = tf.reshape(states, shape=(n, -1, 1))
+      mmt = tf.transpose(mm, perm=[0, 2, 1])
+      return tf.gather(tf.reshape(tf.matmul(mm, mmt), shape=(n, -1)), self.triangular_polmap_states, axis=1)
+    
+  
+  def apply_final_activation(self, z):
+    if self.output_act is not None:
+      return self.output_act(z)
+    else:
+      return z
+
+
+  def call(self, inputs):
+    n = arrayops_shape(inputs[0], 0)
+    states = self.transform_states(tf.reshape(tf.stack(inputs, axis=1), shape=(n, -1)))
+    xf = states
+    for hl in self.hidden_layers:
+      xf = hl(xf)
+    res = xf
+    if self.is_symmetric:
+      xr = tf.gather(states, self.output_weight_map[-1][1], axis=1)
+      for hl in self.hidden_layers:
+        xr = hl(xr)
+      res = []
+      for q in range(len(self.output_map)):
+        qr = self.output_map[q]
+        if q == qr:
+          res.append(xf[:,qr])
+        else:
+          res.append(xr[:,qr])
+      res = tf.stack(res, axis=1)
+    res = VariableBounds.clip_zlike(res)
+    return self.apply_final_activation(res)
+
+
+
+class CNNKernelEnums:
+  kFixed = 0
+  kEmbedded = 1
+
+
+
 class CNNEmbeddedKernelChooser:
-  kernel_t = CNNKernel
+  kernel_type = CNNKernelEnums.kFixed
+
 
   @classmethod
-  def set_kernel_type(cls, kernel_t):
-    cls.kernel_t = kernel_t
+  def set_kernel_type(cls, kernel_type):
+    cls.kernel_type = kernel_type
+  
+
+  @classmethod
+  def get_kernel_class(cls):
+    if cls.kernel_type==CNNKernelEnums.kFixed:
+      return CNNKernel
+    elif cls.kernel_type==CNNKernelEnums.kEmbedded:
+      return CNNKernelWithEmbedding
+    else:
+      raise ValueError("Unknown kernel type.")
+
+
+  @classmethod
+  def get_kernel(cls, **kwargs):
+    return cls.get_kernel_class()(**kwargs)
 
 
 
 class RCNNEmbeddedKernelChooser:
-  kernel_t = CNNKernelWithEmbedding
+  kernel_type = CNNKernelEnums.kEmbedded
+
 
   @classmethod
-  def set_kernel_type(cls, kernel_t):
-    cls.kernel_t = kernel_t
+  def set_kernel_type(cls, kernel_type):
+    cls.kernel_type = kernel_type
+  
+
+  @classmethod
+  def get_kernel_class(cls):
+    if cls.kernel_type==CNNKernelEnums.kFixed:
+      return CNNKernel
+    elif cls.kernel_type==CNNKernelEnums.kEmbedded:
+      return CNNKernelWithEmbedding
+    else:
+      raise ValueError("Unknown kernel type.")
+
+
+  @classmethod
+  def get_kernel(cls, **kwargs):
+    return cls.get_kernel_class()(**kwargs)
+
+
+
+class StateCorrelatorEnums:
+  kAnalytical = 0
+  kDense = 1
+
+
+
+class RCNNStateCorrelatorChooser:
+  correlator_type = StateCorrelatorEnums.kAnalytical
+  hidden_layer_specs = None
+
+
+  @classmethod
+  def set_correlator_type(cls, correlator_type, **kwargs):
+    cls.correlator_type = correlator_type
+    if correlator_type==StateCorrelatorEnums.kDense:
+      cls.hidden_layer_specs = kwargs.get("hidden_layer_specs", None)
+
+
+  @classmethod
+  def get_correlator_class(cls):
+    if cls.correlator_type==StateCorrelatorEnums.kAnalytical:
+      return CNNStateCorrelator
+    elif cls.correlator_type==StateCorrelatorEnums.kDense:
+      return CNNStateDenseCorrelator
+    else:
+      raise ValueError("Unknown correlator type.")
+
+
+  @classmethod
+  def get_state_correlator_ctor_args(cls, distance, rounds, is_symmetric, npol, use_exp_act, **kwargs):
+    res = {
+      'distance': distance,
+      'rounds': rounds,
+      'is_symmetric': is_symmetric,
+      'npol': npol,
+      'use_exp_act': use_exp_act
+    }
+    if cls.correlator_type==StateCorrelatorEnums.kDense:
+      res["hidden_specs"] = cls.hidden_layer_specs
+    for key, val in kwargs.items():
+      res[key] = val
+    return res
+
+
+  @classmethod
+  def get_correlator(cls, distance, rounds, is_symmetric, npol, use_exp_act, **kwargs):
+    args = cls.get_state_correlator_ctor_args(
+      distance = distance,
+      rounds = rounds,
+      is_symmetric = is_symmetric,
+      npol = npol,
+      use_exp_act = use_exp_act,
+      **kwargs
+    )
+    return cls.get_correlator_class()(**args)
 
 
 
 class RCNNInitialStateKernel(Layer):
   rounds_first = 1
+
 
   @staticmethod
   def set_rounds_first(val):
@@ -1843,14 +2107,15 @@ class RCNNInitialStateKernel(Layer):
       obs_type, kernel_distance,
       npol = 1,
       use_exp_act = True,
+      rounds_first_override = None,
       **kwargs
     ):
     super(RCNNInitialStateKernel, self).__init__(**kwargs)
-    self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
+    self.embedded_kernel = RCNNEmbeddedKernelChooser.get_kernel(
       kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
-      rounds = RCNNInitialStateKernel.rounds_first,
+      rounds = RCNNInitialStateKernel.rounds_first if rounds_first_override is None else rounds_first_override,
       npol = npol,
       do_all_data_qubits = True,
       include_det_bits = True,
@@ -1868,11 +2133,12 @@ class RCNNInitialStateKernel(Layer):
     config = super().get_config()
     config.update(
       {
-        'kernel_parity': self.kernel_parity,
-        'obs_type': self.obs_type,
-        'kernel_distance': self.kernel_distance,
-        'npol': self.npol,
-        'use_exp_act': self.use_exp_act
+        'kernel_parity': self.embedded_kernel.kernel_parity,
+        'obs_type': self.embedded_kernel.obs_type,
+        'kernel_distance': self.embedded_kernel.kernel_distance,
+        'npol': self.embedded_kernel.npol,
+        'use_exp_act': self.embedded_kernel.use_exp_act,
+        'rounds_first_override': self.embedded_kernel.rounds
       }
     )
     return config
@@ -1886,6 +2152,7 @@ class RCNNInitialStateKernel(Layer):
 class RCNNInitialDoubletStateKernel(Layer):
   rounds_first = 2
 
+
   @staticmethod
   def set_rounds_first(val):
     RCNNInitialDoubletStateKernel.rounds_first = val
@@ -1897,14 +2164,15 @@ class RCNNInitialDoubletStateKernel(Layer):
       obs_type, kernel_distance,
       npol = 1,
       use_exp_act = True,
+      rounds_first_override = None,
       **kwargs
     ):
     super(RCNNInitialDoubletStateKernel, self).__init__(**kwargs)
-    self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
+    self.embedded_kernel = RCNNEmbeddedKernelChooser.get_kernel(
       kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
-      rounds = RCNNInitialDoubletStateKernel.rounds_first,
+      rounds = RCNNInitialDoubletStateKernel.rounds_first if rounds_first_override is None else rounds_first_override,
       npol = npol,
       do_all_data_qubits = True,
       include_det_bits = True,
@@ -1918,7 +2186,7 @@ class RCNNInitialDoubletStateKernel(Layer):
     )
 
     self.n_states = 2
-    self.state_correlator = CNNStateCorrelator(
+    self.state_correlator = RCNNStateCorrelatorChooser.get_correlator(
       distance = self.embedded_kernel.kernel_distance,
       rounds = self.n_states,
       is_symmetric = self.embedded_kernel.is_symmetric,
@@ -1935,7 +2203,8 @@ class RCNNInitialDoubletStateKernel(Layer):
         'obs_type': self.embedded_kernel.obs_type,
         'kernel_distance': self.embedded_kernel.kernel_distance,
         'npol': self.embedded_kernel.npol,
-        'use_exp_act': self.embedded_kernel.use_exp_act
+        'use_exp_act': self.embedded_kernel.use_exp_act,
+        'rounds_first_override': self.embedded_kernel.rounds
       }
     )
     return config
@@ -1984,7 +2253,7 @@ class RCNNRecurrenceBaseKernel(Layer):
       self.is_symmetric
     )
     # For detector events, we can let the CNNKernelWithEmbedding layer take care of the embedding and weight evaluation.
-    self.evaluator_det_evts = RCNNEmbeddedKernelChooser.kernel_t(
+    self.evaluator_det_evts = RCNNEmbeddedKernelChooser.get_kernel(
       kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
@@ -2017,7 +2286,7 @@ class RCNNRecurrenceBaseKernel(Layer):
     )
 
     self.n_states = 3 if self.include_initial_state else 2
-    self.state_correlator = CNNStateCorrelator(
+    self.state_correlator = RCNNStateCorrelatorChooser.get_correlator(
       distance = self.kernel_distance,
       rounds = self.n_states,
       is_symmetric = self.is_symmetric,
@@ -2163,7 +2432,7 @@ class RCNNFinalStateKernel(Layer):
     ):
     super(RCNNFinalStateKernel, self).__init__(**kwargs)
     self.rounds_last = 2
-    self.embedded_kernel = RCNNEmbeddedKernelChooser.kernel_t(
+    self.embedded_kernel = RCNNEmbeddedKernelChooser.get_kernel(
       kernel_parity = kernel_parity,
       obs_type = obs_type,
       kernel_distance = kernel_distance,
@@ -2184,11 +2453,12 @@ class RCNNFinalStateKernel(Layer):
     self.is_symmetric = self.embedded_kernel.is_symmetric
 
     # In case we are constructing through a call to from_config(), we need to have a reset functionality for static variables.
+    keep_initial = not RCNNFinalStateKernel.ignore_initial_state
     if reset_ignore_initial_state is not None:
-      RCNNFinalStateKernel.set_ignore_initial_state(reset_ignore_initial_state)
+      keep_initial = not reset_ignore_initial_state
 
-    self.n_states = 3 if not RCNNFinalStateKernel.ignore_initial_state else 2
-    self.state_correlator = CNNStateCorrelator(
+    self.n_states = 3 if keep_initial else 2
+    self.state_correlator = RCNNStateCorrelatorChooser.get_correlator(
       distance = self.kernel_distance,
       rounds = self.n_states,
       is_symmetric = self.is_symmetric,
@@ -2206,7 +2476,7 @@ class RCNNFinalStateKernel(Layer):
         'kernel_distance': self.kernel_distance,
         'npol': self.embedded_kernel.npol,
         'use_exp_act': self.use_exp_act,
-        'reset_ignore_initial_state': RCNNFinalStateKernel.ignore_initial_state
+        'reset_ignore_initial_state': (self.n_states==2)
       }
     )
     return config
@@ -2661,6 +2931,62 @@ class RCNNFinalStateKernelCombiner(RCNNKernelCombiner):
 
 
 
+class StateDecoder(Layer):
+  def __init__(
+    self,
+    code_distance,
+    hidden_specs,
+    do_all_data_qubits
+  ):
+    super(StateDecoder, self).__init__()
+    self.code_distance = code_distance
+    self.hidden_specs = hidden_specs
+    self.do_all_data_qubits = do_all_data_qubits
+
+    noutputs = 1 if not self.do_all_data_qubits else self.code_distance**2
+    self.layers_decoder = []
+    if hidden_specs is not None:
+      for hl in hidden_specs:
+        if type(hl)==int:
+          self.layers_decoder.append(Dense(hl, activation="relu"))
+        elif type(hl)==dict:
+          is_activation = hl["is_activation"] if "is_activation" in hl else False
+          if not is_activation:
+            n_nodes = hl["n_nodes"] # Mandatory
+            has_activation = hl["has_activation"] if "has_activation" in hl else True
+            activation = None
+            if has_activation:
+              activation = hl["activation"] if "activation" in hl else "relu"
+            self.layers_decoder.append(Dense(n_nodes, activation=activation))
+          else:
+            self.layers_decoder.append(hl["activation"])
+    # Last layer needs to translate z-like quantities to probability-like quantities
+    if len(self.layers_decoder)>0:
+      self.layers_decoder.append(Dense(noutputs, activation="sigmoid"))
+    else:
+      self.layers_decoder.append(tf.keras.layers.Activation('sigmoid'))
+  
+
+  def get_config(self):
+    config = super().get_config()
+    config.update(
+      {
+        'code_distance': self.code_distance,
+        'hidden_specs': self.hidden_specs,
+        'do_all_data_qubits': self.do_all_data_qubits
+      }
+    )
+    return config
+  
+
+  def call(self, inputs):
+    x = inputs
+    for layer in self.layers_decoder:
+      x = layer(x)
+    return x
+
+
+
 class FullCNNModel(Model):
   def __init__(
       self,
@@ -2719,7 +3045,7 @@ class FullCNNModel(Model):
           n_remove_last_dets = self.n_kernel_last_det_evts
 
       self.cnn_kernels.append(
-        CNNEmbeddedKernelChooser.kernel_t(
+        CNNEmbeddedKernelChooser.get_kernel(
           kernel_parity = kernel_parity,
           obs_type = self.obs_type,
           kernel_distance = self.kernel_distance,
@@ -3072,6 +3398,7 @@ class FullRCNNModel(Model):
       do_all_data_qubits = False,
       return_all_rounds = False,
       separate_first_round = False,
+      decode_per_state_layer = False,
       probability_accumulation_mode = FullRCNNModelEnums.prob_no_acc,
       **kwargs
     ):
@@ -3098,6 +3425,8 @@ class FullRCNNModel(Model):
     - do_all_data_qubits: Whether to output all data qubit predictions over the full surface code.
     - return_all_rounds: Whether to return predictions for all rounds.
     - separate_first_round: By default, there is no prediction for the first round. If this flag is true, there will be one.
+    - decode_per_state_layer: By default, we use one type of a decoder layer to decode all states.
+      If this flag is True, separate decoder layers will be used for each state type.
     - probability_accumulation_mode: Probability accumulation mode.
       By default (prob_no_acc), the probability of an error is predicted using
         p'(z) = sigmoid(z)
@@ -3133,9 +3462,12 @@ class FullRCNNModel(Model):
     if self.stop_round is not None and (self.stop_round>self.rounds or self.stop_round<0):
       self.stop_round = None
     self.has_nonuniform_response = has_nonuniform_response
+    self.do_all_data_qubits = do_all_data_qubits
     self.return_all_rounds = return_all_rounds
     self.separate_first_round = separate_first_round
     self.probability_accumulation_mode = probability_accumulation_mode
+    self.decode_per_state_layer = decode_per_state_layer and (self.return_all_rounds or self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc)
+
     self.first_round_offset = (0 if self.separate_first_round else 1)
 
     RCNNInitialStateKernel.set_rounds_first(2 if not self.separate_first_round else 1)
@@ -3158,12 +3490,20 @@ class FullRCNNModel(Model):
             this_shift_map.append(jx + jy*self.code_distance)
         self.state_shift_map.append(this_shift_map)
 
+    self.state_decoders = []
     self.layer_initial_state = RCNNInitialStateKernelCombiner(
       obs_type = self.obs_type,
       code_distance = self.code_distance,
       kernel_distance = self.kernel_distance,
       npol = self.npol,
       has_nonuniform_response = self.has_nonuniform_response
+    )
+    self.state_decoders.append(
+      StateDecoder(
+        code_distance = self.code_distance,
+        hidden_specs = self.hidden_specs,
+        do_all_data_qubits = self.do_all_data_qubits
+      )
     )
     self.layer_initial_doublet = None
     self.layer_lead_in = None
@@ -3178,6 +3518,14 @@ class FullRCNNModel(Model):
           npol = self.npol,
           has_nonuniform_response = self.has_nonuniform_response
         )
+        if self.decode_per_state_layer:
+          self.state_decoders.append(
+            StateDecoder(
+              code_distance = self.code_distance,
+              hidden_specs = self.hidden_specs,
+              do_all_data_qubits = self.do_all_data_qubits
+            )
+          )
       if self.rounds>2:
         self.layer_lead_in = RCNNLeadInKernelCombiner(
           obs_type = self.obs_type,
@@ -3186,6 +3534,14 @@ class FullRCNNModel(Model):
           npol = self.npol,
           has_nonuniform_response = self.has_nonuniform_response
         )
+        if self.decode_per_state_layer:
+          self.state_decoders.append(
+            StateDecoder(
+              code_distance = self.code_distance,
+              hidden_specs = self.hidden_specs,
+              do_all_data_qubits = self.do_all_data_qubits
+            )
+          )
         if self.rounds>3:
           self.layer_recurrence = RCNNRecurrenceKernelCombiner(
             obs_type = self.obs_type,
@@ -3194,6 +3550,14 @@ class FullRCNNModel(Model):
             npol = self.npol,
             has_nonuniform_response = self.has_nonuniform_response
           )
+          if self.decode_per_state_layer:
+            self.state_decoders.append(
+              StateDecoder(
+                code_distance = self.code_distance,
+                hidden_specs = self.hidden_specs,
+                do_all_data_qubits = self.do_all_data_qubits
+              )
+            )
     if self.stop_round is None:
       self.layer_final_state = RCNNFinalStateKernelCombiner(
         obs_type = self.obs_type,
@@ -3202,27 +3566,14 @@ class FullRCNNModel(Model):
         npol = self.npol,
         has_nonuniform_response = self.has_nonuniform_response
       )
-
-    noutputs = 1 if not do_all_data_qubits else self.code_distance**2
-    self.layers_decoder = []
-    if hidden_specs is not None:
-      for hl in hidden_specs:
-        if type(hl)==int:
-          self.layers_decoder.append(Dense(hl, activation="relu"))
-        elif type(hl)==dict:
-          is_activation = hl["is_activation"] if "is_activation" in hl else False
-          if is_activation:
-            n_nodes = hl["n_nodes"] # Mandatory
-            has_activation = hl["has_activation"] if "has_activation" in hl else True
-            activation = None
-            if has_activation:
-              activation = hl["activation"] if "activation" in hl else "relu"
-            self.layers_decoder.append(Dense(n_nodes, activation=activation))
-    # Last layer needs to translate z-like quantities to probability-like quantities
-    if len(self.layers_decoder)>0:
-      self.layers_decoder.append(Dense(noutputs, activation="sigmoid"))
-    else:
-      self.layers_decoder.append(tf.keras.layers.Activation('sigmoid'))
+      if self.decode_per_state_layer:
+        self.state_decoders.append(
+          StateDecoder(
+            code_distance = self.code_distance,
+            hidden_specs = self.hidden_specs,
+            do_all_data_qubits = self.do_all_data_qubits
+          )
+        )
 
     self.decoded_outputs = []
 
@@ -3239,8 +3590,10 @@ class FullRCNNModel(Model):
         "npol": self.npol,
         "stop_round": self.stop_round,
         "has_nonuniform_response": self.has_nonuniform_response,
+        "do_all_data_qubits": self.do_all_data_qubits,
         "return_all_rounds": self.return_all_rounds,
         "separate_first_round": self.separate_first_round,
+        "decode_per_state_layer": self.decode_per_state_layer,
         "probability_accumulation_mode": self.probability_accumulation_mode
       }
     )
@@ -3283,14 +3636,11 @@ class FullRCNNModel(Model):
     self.probability_accumulation_mode = mode
 
 
-  def decode_state(self, psi):
+  def decode_state(self, psi, ilayer):
     """
     Decode the z-like state psi to a probability-like quantity.
     """
-    x = psi
-    for ll in self.layers_decoder:
-      x = ll(x)
-    return x
+    return self.state_decoders[ilayer](psi)
 
 
   def regroup_state_by_kernel(self, psi):
@@ -3375,6 +3725,7 @@ class FullRCNNModel(Model):
     self.decoded_outputs = []
 
     psi_list = []
+    idecoder = 0 if self.decode_per_state_layer else -1
     for r in range(self.rounds+1-self.first_round_offset):
       this_layer = None
       this_bits = None
@@ -3389,14 +3740,20 @@ class FullRCNNModel(Model):
         this_layer = self.layer_initial_doublet
         this_bits = det_bits[:,:,:self.kernel_n_ancillas*2]
         this_evts = det_evts_w_final[:,:,:self.kernel_half_n_ancillas*3]
+        if self.decode_per_state_layer:
+          idecoder += 1
       elif r<self.rounds-self.first_round_offset:
         this_layer = self.layer_lead_in if r==2-self.first_round_offset else self.layer_recurrence
         this_bits = det_bits[:,:,self.kernel_n_ancillas*(r-2+self.first_round_offset):self.kernel_n_ancillas*(r+1+self.first_round_offset)]
         this_evts = det_evts_w_final[:,:,self.kernel_half_n_ancillas + self.kernel_n_ancillas*(r-2+self.first_round_offset):self.kernel_half_n_ancillas + self.kernel_n_ancillas*(r+self.first_round_offset)]
+        if self.decode_per_state_layer and (r==2-self.first_round_offset or r==3-self.first_round_offset):
+          idecoder += 1
       else:
         this_layer = self.layer_final_state
         this_bits = det_bits[:,:,-self.kernel_n_ancillas*2:]
         this_evts = det_evts_w_final[:,:,-self.kernel_half_n_ancillas*3:]
+        if self.decode_per_state_layer:
+          idecoder += 1
 
       if r>0:
         prev_state = psi_list[-1]
@@ -3420,22 +3777,21 @@ class FullRCNNModel(Model):
         this_p = VariableBounds.clip_prob(this_p*(-prev_p+1) + (-this_p+1)*prev_p)
         this_psi = tf.math.log(this_p/(-this_p+1))
       psi_list.append(this_psi)
+      if self.return_all_rounds or self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
+        self.decoded_outputs.append(self.decode_state(this_psi), idecoder)
 
       if self.stop_round is not None and r==self.stop_round-1-self.first_round_offset:
         break
 
     res = None
-    if self.return_all_rounds or self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
-      for psi in psi_list:
-        self.decoded_outputs.append(self.decode_state(psi))
-      if self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
-        for iout in range(1, len(self.decoded_outputs)):
-          self.decoded_outputs[iout] = self.decoded_outputs[iout]*(-self.decoded_outputs[iout-1]+1) + self.decoded_outputs[iout-1]*(-self.decoded_outputs[iout]+1)
+    if self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
+      for iout in range(1, len(self.decoded_outputs)):
+        self.decoded_outputs[iout] = self.decoded_outputs[iout]*(-self.decoded_outputs[iout-1]+1) + self.decoded_outputs[iout-1]*(-self.decoded_outputs[iout]+1)
     if self.return_all_rounds:
       res = tf.stack(self.decoded_outputs, axis=1)
       res = tf.reshape(res, (arrayops_shape(res, 0), -1))
     elif self.probability_accumulation_mode==FullRCNNModelEnums.prob_decoded_acc:
       res = self.decoded_outputs[-1]
     else:
-      res = self.decode_state(psi_list[-1])
+      res = self.decode_state(psi_list[-1], -1)
     return res
