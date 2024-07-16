@@ -1899,11 +1899,7 @@ class CNNStateDenseCorrelator(Layer):
           self.triangular_polmap_states.append(ix+iy*ndim)
 
     self.output_map = get_layer_output_map(self.distance, self.is_symmetric)
-    self.output_weight_map = get_states_perround_map(self.distance, self.rounds, 1, self.is_symmetric)
-    if self.npol>1:
-      output_weight_map_npol = get_states_perround_map(self.distance, self.rounds, self.npol, self.is_symmetric)
-      for i in range(len(self.output_weight_map)):
-        self.output_weight_map[i][1].extend([ v+ndim for v in output_weight_map_npol[i][1] ])
+    self.output_weight_map = get_states_perround_map(self.distance, self.rounds, self.npol, self.is_symmetric)
 
     self.hidden_layers = []
     if hidden_specs is not None:
@@ -1941,21 +1937,13 @@ class CNNStateDenseCorrelator(Layer):
     return config
 
 
-  def transform_states(self, states):
+  def transform_states(self, states, n):
     if self.npol==1:
       return states
     else:
-      n = arrayops_shape(states, 0)
       mm = tf.reshape(states, shape=(n, -1, 1))
       mmt = tf.transpose(mm, perm=[0, 2, 1])
-      # Note that a full quadratic representation contains terms of the form x_i*x_j as well as x_i alone.
-      return tf.concat(
-        [
-          states,
-          tf.gather(tf.reshape(tf.matmul(mm, mmt), shape=(n, -1)), self.triangular_polmap_states, axis=1)
-        ],
-        axis=1
-      )
+      return tf.gather(tf.reshape(tf.matmul(mm, mmt), shape=(n, -1)), self.triangular_polmap_states, axis=1)
     
   
   def apply_final_activation(self, z):
@@ -1967,7 +1955,7 @@ class CNNStateDenseCorrelator(Layer):
 
   def call(self, inputs):
     n = arrayops_shape(inputs[0], 0)
-    states = self.transform_states(tf.reshape(tf.stack(inputs, axis=1), shape=(n, -1)))
+    states = self.transform_states(tf.reshape(tf.stack(inputs, axis=1), shape=(n, -1)), n)
     xf = states
     for hl in self.hidden_layers:
       xf = hl(xf)
@@ -2189,7 +2177,7 @@ class RCNNInitialDoubletStateKernel(Layer):
       include_det_bits = True,
       include_det_evts = (RCNNInitialDoubletStateKernel.rounds_first>1),
       n_remove_last_det_evts = (kernel_distance**2 - 1)//2,
-      discard_activation = False,
+      discard_activation = True,
       discard_bias = True,
       ignore_first_det_evt_round = False,
       use_exp_act = use_exp_act,
@@ -2727,7 +2715,8 @@ class RCNNKernelCombiner(Layer):
       nph = np*(np-1)//2
       total_nfracs += nfr
       total_nphases += nph
-      total_inverters += np
+      if self.allow_inversion:
+        total_inverters += np
       if nfr>0:
         udkc.append(
           self.add_weight(
