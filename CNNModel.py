@@ -1530,6 +1530,7 @@ class CNNStateCorrelatorWeightInitializer(Initializer):
       rounds,
       is_symmetric,
       npol,
+      include_npol2_linear,
       disable_fractions,
       new_state_reversability,
       scale = 1.
@@ -1538,16 +1539,18 @@ class CNNStateCorrelatorWeightInitializer(Initializer):
     self.rounds = rounds
     self.is_symmetric = is_symmetric
     self.npol = npol
+    self.include_npol2_linear = include_npol2_linear
     self.disable_fractions = disable_fractions
     self.new_state_reversability = new_state_reversability
     self.scale = scale
     self.n_fracs = self.rounds-1
     self.n_phases = self.rounds*(self.rounds-1)//2
 
-    num_inputs = self.distance**2
+    ndim = self.distance**2 * self.rounds
+    num_inputs = ndim if self.npol==1 else ndim*(ndim+(3 if self.include_npol2_linear else 1))//2
     num_outputs = self.distance**2 if not self.is_symmetric else (self.distance**2 + 1)//2
     n_evolve_params = self.n_fracs*(1 if self.disable_fractions else 2) + (1 if self.new_state_reversability else 0) + self.n_phases
-    self.shape_exp = [ n_evolve_params, self.rounds, num_inputs, num_outputs ]
+    self.shape_exp = [ n_evolve_params, num_inputs, num_outputs ]
 
 
   def __call__(self, shape, dtype=None):
@@ -1576,6 +1579,7 @@ class CNNStateCorrelatorWeightInitializer(Initializer):
         'rounds': self.rounds,
         'is_symmetric': self.is_symmetric,
         'npol': self.npol,
+        'include_npol2_linear': self.include_npol2_linear,
         'disable_fractions': self.disable_fractions,
         'new_state_reversability': self.new_state_reversability,
         'scale': self.scale
@@ -1676,6 +1680,7 @@ class CNNStateCorrelator(Layer):
     self.npol = npol
     self.is_symmetric = is_symmetric
     self.use_exp_act = use_exp_act
+    self.include_npol2_linear = True
 
     # In case we are constructing through a call to from_config(), we need to have a reset functionality for static variables.
     if reset_disable_fractions is not None:
@@ -1685,34 +1690,40 @@ class CNNStateCorrelator(Layer):
 
     label = f"CNNStateCorrelator_d{self.distance}_r{self.rounds}"
 
-    num_inputs = self.distance**2
     num_outputs = self.distance**2 if not self.is_symmetric else (self.distance**2 + 1)//2
+    ndim = self.distance**2 * self.rounds
+    num_inputs = ndim if self.npol==1 else ndim*(ndim+(3 if self.include_npol2_linear else 1))//2
+    self.triangular_polmap_states = None
+    if self.npol>1:
+      self.triangular_polmap_states = []
+      for iy in range(ndim):
+        for ix in range(iy, ndim):
+          self.triangular_polmap_states.append(ix+iy*ndim)
     self.output_map = None
     self.output_weight_map = None
     if self.is_symmetric:
       self.output_map = get_layer_output_map(self.distance, self.is_symmetric)
-      fmap = [ q for q in range(num_inputs) ]
-      rmap = [ num_inputs-q-1 for q in range(num_inputs) ]
-      omap = []
-      for q in range(self.distance**2):
-        qr = self.output_map[q]
-        if q == qr:
-          omap.append([qr, fmap])
-        else:
-          omap.append([qr, rmap])
-      self.output_weight_map = omap
+      self.output_weight_map = get_states_perround_map(self.distance, self.rounds, self.npol, self.is_symmetric)
+      if self.include_npol2_linear:
+        owm1 = get_states_perround_map(self.distance, self.rounds, 1, self.is_symmetric)
+        for i in range(len(owm1)):
+          tmp_map = deepcopy(owm1[i][1])
+          for v in self.output_weight_map[i][1]:
+            tmp_map.append(v + ndim)
+          self.output_weight_map[i][1] = tmp_map
 
     self.n_fracs = self.rounds-1
     self.n_phases = self.rounds*(self.rounds-1)//2
     n_evolve_params = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2) + (1 if CNNStateCorrelator.new_state_reversability else 0) + self.n_phases
     self.params_state_evolutions = self.add_weight(
       name=f"{label}_w_state_evolutions",
-      shape=[ n_evolve_params, self.rounds, num_inputs, num_outputs ],
+      shape=[ n_evolve_params, num_inputs, num_outputs ],
       initializer=CNNStateCorrelatorWeightInitializer(
         distance=self.distance,
         rounds=self.rounds,
         is_symmetric=self.is_symmetric,
         npol=self.npol,
+        include_npol2_linear=self.include_npol2_linear,
         disable_fractions=CNNStateCorrelator.disable_fractions,
         new_state_reversability=CNNStateCorrelator.new_state_reversability,
         scale=1.
@@ -1772,69 +1783,67 @@ class CNNStateCorrelator(Layer):
     if bias is None or not self.is_symmetric or self.output_map is None:
       return tf.repeat(bias, n, axis=0) if bias is not None else None
     return tf.repeat(tf.gather(bias, self.output_map, axis=1), n, axis=0)
-  
+
+
+  def transform_states(self, states, n):
+    if self.npol==1:
+      return states
+    else:
+      mm = tf.reshape(states, shape=(n, -1, 1))
+      mmt = tf.transpose(mm, perm=[0, 2, 1])
+      res = tf.gather(tf.reshape(tf.matmul(mm, mmt), shape=(n, -1)), self.triangular_polmap_states, axis=1)
+      if not self.include_npol2_linear:
+        return res
+      else:
+        return tf.concat([ states, res ], axis=1)
+
 
   def call(self, inputs):
     n = arrayops_shape(inputs[0], 0)
+    states = self.transform_states(tf.reshape(tf.stack(inputs, axis=1), shape=(n, -1)), n)
 
     # c_reverse is in [-1, 1]
     c_reverse = []
     # f is supposed to be in [0, 1], f_z in (-inf, inf), f_log_1pexpz in [0, inf)
     f_z = []
     for ifrac in range(self.n_fracs):
-      reverse_arg_sum = None
-      fwgt_z = None
-      for r, input in enumerate(inputs):
-        if reverse_arg_sum is None:
-          reverse_arg_sum = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac][r], self.output_weight_map))
-          if not CNNStateCorrelator.disable_fractions:
-            fwgt_z = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs][r], self.output_weight_map))
-        else:
-          reverse_arg_sum += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac][r], self.output_weight_map))
-          if not CNNStateCorrelator.disable_fractions:
-            fwgt_z += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs][r], self.output_weight_map))
-      reverse_arg_sum = reverse_arg_sum + self.get_mapped_bias(self.params_b[ifrac], n)
+      reverse_arg_sum = tf.matmul(states, self.get_mapped_weights(self.params_state_evolutions[ifrac], self.output_weight_map))
+      reverse_arg_sum += + self.get_mapped_bias(self.params_b[ifrac], n)
+      # No need for clipping. Boundaries at -1 and 1 are acceptable.
       c_reverse.append(self.reverse_activation(reverse_arg_sum))
+      fwgt_z = None
       if not CNNStateCorrelator.disable_fractions:
+        fwgt_z = tf.matmul(states, self.get_mapped_weights(self.params_state_evolutions[ifrac+self.n_fracs], self.output_weight_map))
         fwgt_z += self.get_mapped_bias(self.params_b[ifrac+self.n_fracs], n)
         fwgt_z = VariableBounds.clip_zlike(fwgt_z)
         f_z.append(fwgt_z)
-    
+    f_log_1pexpz = [ tf.math.log1p(tf.math.exp(fz)) for fz in f_z ]
+
     idx_offset = self.n_fracs*(1 if CNNStateCorrelator.disable_fractions else 2)
 
     c_reverse_new_state = None
     if CNNStateCorrelator.new_state_reversability:
-      for r, input in enumerate(inputs):
-        reverse_arg_mul = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[idx_offset][r], self.output_weight_map))
-        if c_reverse_new_state is None:
-          c_reverse_new_state = reverse_arg_mul
-        else:
-          c_reverse_new_state += reverse_arg_mul
-      c_reverse_new_state = self.reverse_activation(c_reverse_new_state + self.get_mapped_bias(self.params_b[idx_offset], n))
+      c_reverse_new_state = tf.matmul(states, self.get_mapped_weights(self.params_state_evolutions[idx_offset], self.output_weight_map))
+      c_reverse_new_state += self.get_mapped_bias(self.params_b[idx_offset], n)
+      c_reverse_new_state = self.reverse_activation(c_reverse_new_state)
       idx_offset += 1
     
     two_cos_phi = []
     # two_cos_phi is in [-2, 2]
     for iph in range(self.n_phases):
-      cpwgt_arg_sum = None
       jph = idx_offset + iph
-      for r, input in enumerate(inputs):
-        if cpwgt_arg_sum is None:
-          cpwgt_arg_sum = tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[jph][r], self.output_weight_map))
-        else:
-          cpwgt_arg_sum += tf.matmul(input, self.get_mapped_weights(self.params_state_evolutions[jph][r], self.output_weight_map))
-      two_cos_phi.append(2*self.cpwgt_activation(cpwgt_arg_sum + self.get_mapped_bias(self.params_b[jph], n)))
-
-    f_log_1pexpz = [ tf.math.log1p(tf.math.exp(fz)) for fz in f_z ]
+      cpwgt_arg_sum = tf.matmul(states, self.get_mapped_weights(self.params_state_evolutions[jph], self.output_weight_map))
+      cpwgt_arg_sum += self.get_mapped_bias(self.params_b[jph], n)
+      two_cos_phi.append(self.cpwgt_activation(cpwgt_arg_sum)*2)
 
     f_denom = None
     state_args = []
     for ist, state in enumerate(inputs):
       fwgt = None
-      if not CNNStateCorrelator.disable_fractions:
+      if not CNNStateCorrelator.disable_fractions and self.n_fracs>0:
         if f_denom is None:
           f_denom = -f_log_1pexpz[ist]
-        elif ist<self.rounds-1:
+        elif ist<self.n_fracs:
           f_denom -= f_log_1pexpz[ist]
         if ist<self.rounds-1:
           fwgt = f_z[ist] + f_denom
@@ -1848,7 +1857,7 @@ class CNNStateCorrelator(Layer):
           state_arg = state_arg*c_reverse_new_state
       else:
         state_arg = state*c_reverse[ist-1]
-      if not CNNStateCorrelator.disable_fractions:
+      if fwgt is not None:
         state_arg = state_arg + fwgt
       state_args.append(state_arg)
 
@@ -1898,8 +1907,11 @@ class CNNStateDenseCorrelator(Layer):
         for ix in range(iy, ndim):
           self.triangular_polmap_states.append(ix+iy*ndim)
 
-    self.output_map = get_layer_output_map(self.distance, self.is_symmetric)
-    self.output_weight_map = get_states_perround_map(self.distance, self.rounds, self.npol, self.is_symmetric)
+    self.output_map = None
+    self.output_weight_map = None
+    if self.is_symmetric:
+      self.output_map = get_layer_output_map(self.distance, self.is_symmetric)
+      self.output_weight_map = get_states_perround_map(self.distance, self.rounds, self.npol, self.is_symmetric)
 
     self.hidden_layers = []
     if hidden_specs is not None:
@@ -2520,8 +2532,6 @@ class RCNNFinalStateKernel(Layer):
       initial_state = inputs[iin]
       iin = iin + 1
     old_state = inputs[iin]; iin = iin + 1
-    #det_bits = inputs[2]
-    #det_evts = inputs[3]
 
     final_z = self.embedded_kernel(inputs[iin:])
     states = [ final_z, old_state ]
