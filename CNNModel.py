@@ -2229,6 +2229,7 @@ class RCNNRecurrenceBaseKernel(Layer):
       npol = 1,
       use_exp_act = True,
       include_initial_state = False,
+      include_prev2_state = False,
       **kwargs
     ):
     super(RCNNRecurrenceBaseKernel, self).__init__(**kwargs)
@@ -2242,6 +2243,7 @@ class RCNNRecurrenceBaseKernel(Layer):
     self.is_symmetric = kernel_parity[0]==0 and kernel_parity[1]==0
     self.use_exp_act = use_exp_act
     self.include_initial_state = include_initial_state
+    self.include_prev2_state = include_prev2_state
     label = f"{append_name}_{kernel_parity[0]}_{kernel_parity[1]}"
 
     # For detector bits, we will embed them into a triplet state and then evaluate weigt products.
@@ -2284,7 +2286,11 @@ class RCNNRecurrenceBaseKernel(Layer):
       trainable=True
     )
 
-    self.n_states = 3 if self.include_initial_state else 2
+    self.n_states = 2
+    if self.include_initial_state:
+      self.n_states += 1
+    if self.include_prev2_state:
+      self.n_states += 1
     self.state_correlator = RCNNStateCorrelatorChooser.get_correlator(
       distance = self.kernel_distance,
       rounds = self.n_states,
@@ -2303,7 +2309,7 @@ class RCNNRecurrenceBaseKernel(Layer):
         'kernel_distance': self.kernel_distance,
         'npol': self.npol,
         'use_exp_act': self.use_exp_act
-        # No need for include_initial_state. This parameter is overridden through daughter classes, which is how the constructor of this class should be called.
+        # No need for include_initial_state or include_prev2_state. These parameters are overridden through daughter classes, which is how the constructor of this class should be called.
       }
     )
     return config
@@ -2334,15 +2340,18 @@ class RCNNRecurrenceBaseKernel(Layer):
     # * inputs[1]: z of the previous state, described by exp(z)/(1+exp(z)) = exp(z/2)/(exp(-z/2) + exp(z/2))
     # * inputs[2]: det_bits of the first three rounds
     # * inputs[3]: det_evts of last two rounds
-    if not self.include_initial_state:
-      old_state = inputs[0]
-      det_bits = inputs[1]
-      det_evts = inputs[2]
-    else:
-      initial_state = inputs[0]
-      old_state = inputs[1]
-      det_bits = inputs[2]
-      det_evts = inputs[3]
+    initial_state = None
+    prev2_state = None
+    ioffset = 0
+    if self.include_initial_state:
+      initial_state = inputs[ioffset]
+      ioffset += 1
+    if self.include_prev2_state:
+      prev2_state = inputs[ioffset]
+      ioffset += 1
+    old_state = inputs[ioffset]
+    det_bits = inputs[ioffset+1]
+    det_evts = inputs[ioffset+2]
     
     n = arrayops_shape(old_state, 0)
 
@@ -2351,7 +2360,9 @@ class RCNNRecurrenceBaseKernel(Layer):
     recurrence_z += self.evaluator_det_evts(det_evts)
 
     states = [ recurrence_z, old_state ]
-    if self.include_initial_state:
+    if prev2_state is not None:
+      states.append(prev2_state)
+    if initial_state is not None:
       states.append(initial_state)
     return self.state_correlator(states)
 
@@ -2366,9 +2377,9 @@ class RCNNLeadInKernel(RCNNRecurrenceBaseKernel):
   ignore_initial_state = False
 
 
-  @staticmethod
-  def set_ignore_initial_state(flag):
-    RCNNLeadInKernel.ignore_initial_state = flag
+  @classmethod
+  def set_ignore_initial_state(cls, flag):
+    cls.ignore_initial_state = flag
 
   
   def __init__(
@@ -2387,9 +2398,24 @@ class RCNNLeadInKernel(RCNNRecurrenceBaseKernel):
       npol = npol,
       use_exp_act = use_exp_act,
       include_initial_state = not RCNNLeadInKernel.ignore_initial_state,
+      include_prev2_state = False,
       **kwargs
     )
 class RCNNRecurrenceKernel(RCNNRecurrenceBaseKernel):
+  ignore_initial_state = False
+  ignore_prev2_state = True
+
+
+  @classmethod
+  def set_ignore_initial_state(cls, flag):
+    cls.ignore_initial_state = flag
+
+
+  @classmethod
+  def set_ignore_prev2_state(cls, flag):
+    cls.ignore_prev2_state = flag
+
+
   def __init__(
       self,
       kernel_parity,
@@ -2405,7 +2431,8 @@ class RCNNRecurrenceKernel(RCNNRecurrenceBaseKernel):
       append_name = "RCNNRecurrenceKernel",
       npol = npol,
       use_exp_act = use_exp_act,
-      include_initial_state = True,
+      include_initial_state = not RCNNRecurrenceKernel.ignore_initial_state,
+      include_prev2_state = not RCNNRecurrenceKernel.ignore_prev2_state,
       **kwargs
     )
 
@@ -3418,6 +3445,12 @@ class FullRCNNModelEnums:
   prob_no_acc = 0
   prob_undecoded_acc = 1
   prob_decoded_acc = 2
+
+  kInitialStateMode_InitialState = 0
+  kInitialStateMode_MinusTwo = 1
+  kInitialStateMode_InitialState_MinusTwo = 2
+
+
 class FullRCNNModel(Model):
   prob_no_acc = 0
   prob_undecoded_acc = 1
@@ -3433,6 +3466,7 @@ class FullRCNNModel(Model):
       has_nonuniform_response = False,
       do_all_data_qubits = False,
       return_all_rounds = False,
+      initial_state_mode = FullRCNNModelEnums.kInitialStateMode_InitialState,
       separate_first_round = False,
       allow_combiner_inversion = False,
       decode_per_state_layer = False,
@@ -3461,6 +3495,10 @@ class FullRCNNModel(Model):
     - has_nonuniform_response: Whether to include a non-uniform response adjustment.
     - do_all_data_qubits: Whether to output all data qubit predictions over the full surface code.
     - return_all_rounds: Whether to return predictions for all rounds.
+    - initial_state_mode: By default (option kInitialStateMode_InitialState),
+      the last state state correlators receive is the initial state.
+      One can request the last state to be the second to previous state (option kInitialStateMode_MinusTwo),
+      or elect to pass both (option kInitialStateMode_InitialState_MinusTwo).
     - separate_first_round: By default, there is no prediction for the first round. If this flag is true, there will be one.
     - allow_combiner_inversion: Whether to allow the combiner to include the option to invert the kernel outputs. This option is disabled by default.
     - decode_per_state_layer: By default, we use one type of a decoder layer to decode all states.
@@ -3502,6 +3540,7 @@ class FullRCNNModel(Model):
     self.has_nonuniform_response = has_nonuniform_response
     self.do_all_data_qubits = do_all_data_qubits
     self.return_all_rounds = return_all_rounds
+    self.initial_state_mode = initial_state_mode
     self.separate_first_round = separate_first_round
     self.allow_combiner_inversion = allow_combiner_inversion
     self.probability_accumulation_mode = probability_accumulation_mode
@@ -3511,6 +3550,7 @@ class FullRCNNModel(Model):
 
     RCNNInitialStateKernel.set_rounds_first(2 if not self.separate_first_round else 1)
     RCNNLeadInKernel.set_ignore_initial_state(not self.separate_first_round)
+    RCNNRecurrenceKernel.set_ignore_prev2_state(self.initial_state_mode != FullRCNNModelEnums.kInitialStateMode_InitialState_MinusTwo)
     RCNNFinalStateKernel.set_ignore_initial_state(self.rounds<=1+self.first_round_offset)
 
     if self.rounds<1+self.first_round_offset:
@@ -3636,6 +3676,7 @@ class FullRCNNModel(Model):
         "has_nonuniform_response": self.has_nonuniform_response,
         "do_all_data_qubits": self.do_all_data_qubits,
         "return_all_rounds": self.return_all_rounds,
+        "initial_state_mode": self.initial_state_mode,
         "separate_first_round": self.separate_first_round,
         "allow_combiner_inversion": self.allow_combiner_inversion,
         "decode_per_state_layer": self.decode_per_state_layer,
@@ -3679,6 +3720,13 @@ class FullRCNNModel(Model):
     Set the probability accumulation mode.
     """
     self.probability_accumulation_mode = mode
+
+
+  def set_initial_state_mode(self, mode):
+    """
+    Set the initial state mode.
+    """
+    self.initial_state_mode = mode
 
 
   def decode_state(self, psi, ilayer):
@@ -3776,6 +3824,7 @@ class FullRCNNModel(Model):
       this_bits = None
       this_evts = None
       prev_state = None
+      prev2_state = None
       initial_state = None
       if r==0:
         this_layer = self.layer_initial_state
@@ -3803,11 +3852,19 @@ class FullRCNNModel(Model):
       if r>0:
         prev_state = psi_list[-1]
         if r>1:
-          initial_state = psi_list[0]
+          if self.initial_state_mode == FullRCNNModelEnums.kInitialStateMode_InitialState or self.initial_state_mode == FullRCNNModelEnums.kInitialStateMode_InitialState_MinusTwo:
+            initial_state = psi_list[0]
+          if self.initial_state_mode == FullRCNNModelEnums.kInitialStateMode_MinusTwo or self.initial_state_mode == FullRCNNModelEnums.kInitialStateMode_InitialState_MinusTwo:
+            prev2_state = psi_list[-2]
+          # Special case for the lead-in and final layers
+          if initial_state is not None and prev2_state is not None and (r==2-self.first_round_offset or r==self.rounds-self.first_round_offset):
+            prev2_state = None
       
       this_inputs = []
       if initial_state is not None:
         this_inputs.append(self.regroup_state_by_kernel(initial_state))
+      if prev2_state is not None:
+        this_inputs.append(self.regroup_state_by_kernel(prev2_state))
       if prev_state is not None:
         this_inputs.append(self.regroup_state_by_kernel(prev_state))
       if this_bits is not None:
