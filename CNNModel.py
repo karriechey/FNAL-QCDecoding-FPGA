@@ -1677,10 +1677,11 @@ class CNNStateCorrelator(Layer):
     super(CNNStateCorrelator, self).__init__(**kwargs)
     self.distance = distance
     self.rounds = rounds
-    self.npol = npol
+    #self.npol = npol
+    self.npol = 1
     self.is_symmetric = is_symmetric
     self.use_exp_act = use_exp_act
-    self.include_npol2_linear = True
+    self.include_npol2_linear = True and self.npol>1
 
     # In case we are constructing through a call to from_config(), we need to have a reset functionality for static variables.
     if reset_disable_fractions is not None:
@@ -1808,7 +1809,7 @@ class CNNStateCorrelator(Layer):
     f_z = []
     for ifrac in range(self.n_fracs):
       reverse_arg_sum = tf.matmul(states, self.get_mapped_weights(self.params_state_evolutions[ifrac], self.output_weight_map))
-      reverse_arg_sum += + self.get_mapped_bias(self.params_b[ifrac], n)
+      reverse_arg_sum += self.get_mapped_bias(self.params_b[ifrac], n)
       # No need for clipping. Boundaries at -1 and 1 are acceptable.
       c_reverse.append(self.reverse_activation(reverse_arg_sum))
       fwgt_z = None
