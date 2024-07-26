@@ -550,6 +550,26 @@ def get_detector_evts_perround_embedding_map(d, r, obs_type, npol, is_symmetric,
   return res
 
 
+def get_detector_bit_state_relation_map(d, r, npol, is_symmetric):
+  nearest_data_qubit_idxmap = get_data_qubits_next_to_measure_qubits(d)
+  n_ancillas = d**2-1
+  ndims = n_ancillas*r
+  res = []
+  for iy in range(ndims):
+    rry = iy//n_ancillas
+    iiy = iy%n_ancillas
+    dqs_y = nearest_data_qubit_idxmap[iiy]
+    if npol==1:
+      res.append(dqs_y)
+      continue
+    for ix in range(iy, ndims):
+      rrx = ix//n_ancillas
+      iix = ix%n_ancillas
+      dqs_x = nearest_data_qubit_idxmap[iix]
+      res.append(sorted(set(dqs_y).union(dqs_x)))
+  return res
+
+
 
 class DetectorBitStateEmbedder(Layer):
   """
@@ -3462,6 +3482,7 @@ class FullRCNNModelEnums:
   kInitialStateMode_InitialState_MinusTwo = 2
 
 
+
 class FullRCNNModel(Model):
   prob_no_acc = 0
   prob_undecoded_acc = 1
@@ -3539,6 +3560,8 @@ class FullRCNNModel(Model):
     self.kernel_half_n_ancillas = self.kernel_n_ancillas//2
     self.n_last_det_evts = (self.code_distance**2-1)//2
     if self.obs_type=="XL":
+      # For even-d surface codes, the number of Z and X measure qubits are not the same,
+      # so we have to recompute by subtracting from the total number of measure qubits.
       self.n_last_det_evts = self.code_distance**2 - 1 - self.n_last_det_evts
     self.n_kernel_last_det_evts = (self.kernel_distance**2-1)//2
     self.nshifts = self.code_distance - self.kernel_distance + 1
@@ -3763,8 +3786,13 @@ class FullRCNNModel(Model):
     See the call() function for further details on the conventions of the function argument all_inputs.
     """
     if arrayops_rank(all_inputs[0])==3:
+      # In this case, the inputs are already grouped by kernel strides.
+      # Faster in training, but less memory-efficient.
       return all_inputs[0], all_inputs[1]
     else:
+      # Here, we group the inputs by kernel strides ourselves.
+      # Slower in training, but we do not have to worry about storing giant sets of duplicated information.
+      # (A much more memory-efficient way would be to operate over pointers - sigh...)
       binary_t, _, idx_t, _ = get_types(self.code_distance, self.rounds, self.kernel_distance)
       use_TF = type(all_inputs[0])!=np.ndarray
       features_det_bits, _, _, _ = group_det_bits_kxk(
@@ -3819,6 +3847,8 @@ class FullRCNNModel(Model):
     - r*d^2 if do_all_data_qubits is True and return_all_rounds is True, and stop_round is None.
     - If stop_round has a value, the output is the same as the above cases, but with the last round now capped by stop_round.
       Please note that specifying any valid 2<=stop_round<=r will avoid running the final state layer.
+    If separate_first_round, assume (small-case) r -> r+1 in the returned result from the discussion above
+    since we would also be predicting the state of the first round.
     """
     # det_evts_w_final is a modified per-kernel det_evts array
     # that includes real final det_evts
@@ -3884,9 +3914,9 @@ class FullRCNNModel(Model):
         this_inputs.append(this_evts)
 
       this_psi = this_layer(this_inputs)
-      if self.probability_accumulation_mode==FullRCNNModelEnums.prob_undecoded_acc and r>0:
+      if self.probability_accumulation_mode==FullRCNNModelEnums.prob_undecoded_acc and prev_state is not None:
         this_p = tf.math.sigmoid(this_psi)
-        prev_p = tf.math.sigmoid(psi_list[-1])
+        prev_p = tf.math.sigmoid(prev_state)
         this_p = VariableBounds.clip_prob(this_p*(-prev_p+1) + (-this_p+1)*prev_p)
         this_psi = tf.math.log(this_p/(-this_p+1))
       psi_list.append(this_psi)
