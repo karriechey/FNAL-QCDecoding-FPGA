@@ -2877,17 +2877,25 @@ class RCNNKernelCombiner(Layer):
         sum_inputs = []
         for iktype, idkq in enumerate(idkqs):
           #ktype = kernel_type_contribs[iktype]
-          kout = None
+          kout_list = []
           for ikq_idxkq in idkq:
             ikq = ikq_idxkq[0]
             idxkq = ikq_idxkq[1]
             single_kernout = kernel_outputs[ikq][:,idxkq]
             if inverter_values is not None:
               single_kernout = tf.math.pow(single_kernout, inverter_values[iktype])
+            kout_list.append(single_kernout)
+          kout = None
+          for iik in range(len(kout_list)):
+            kki = kout_list[iik]
             if kout is None:
-              kout = single_kernout
+              kout = kki
             else:
-              kout = kout + single_kernout
+              kout += kki
+            for jjk in range(iik+1,len(kout_list)):
+              kkj = kout_list[jjk]
+              kout += tf.math.sqrt(kki*kkj)*2
+          kout /= len(kout_list)
           if frac_params is not None:
             frac = None
             for ifrac in range(min(frac_params.shape[0],iktype+1)):
