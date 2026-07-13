@@ -91,6 +91,10 @@ def run():
     ap.add_argument('--hidden', type=int, default=100)
     ap.add_argument('--hidden-layers', type=int, default=2)
     ap.add_argument('--npol', type=int, default=2)
+    ap.add_argument('--weight-bits', type=int, default=None,
+                    help='if set, rebuild the QUANTIZED arch (StateDecoder=QDense, point-of-use '
+                         'quantized_bits) so quantized .weights.h5 load AND inference matches the '
+                         'trained model. Must equal the value train_one_quantized used. None=FP32.')
     ap.add_argument('--batch-size', type=int, default=10000)
     ap.add_argument('--data-dir', default=os.path.expanduser('~/rcnn_threshold/pools'))
     ap.add_argument('--pool', default=None,
@@ -112,7 +116,6 @@ def run():
 
     from types_cfg import get_types
     from circuit_partition import split_measurements
-    from CNNModel import FullRCNNModel
 
     d, p, r, k, nte = args.d, args.p, args.rounds, args.kernel, args.n_test
     binary_t, time_t, idx_t, packed_t = get_types(d, r, k)
@@ -130,10 +133,19 @@ def run():
     N = measurements.shape[0]
     te = slice(N - nte, N)
 
-    model = FullRCNNModel(
-        'ZL', d, k, r, [args.hidden for _ in range(args.hidden_layers)],
-        npol=args.npol, stop_round=None, has_nonuniform_response=False,
-        do_all_data_qubits=False, return_all_rounds=False)
+    hidden = [args.hidden for _ in range(args.hidden_layers)]
+    if args.weight_bits is None or args.weight_bits >= 32:
+        from CNNModel import FullRCNNModel
+        model = FullRCNNModel(
+            'ZL', d, k, r, hidden, npol=args.npol, stop_round=None,
+            has_nonuniform_response=False, do_all_data_qubits=False, return_all_rounds=False)
+    else:
+        # rebuild the SAME quantized arch training saved (QDense StateDecoder + point-of-use
+        # quantized_bits) so the checkpoint layout matches AND forward inference is quantized.
+        from CNNModel_quantized import build_quantized_rcnn
+        model = build_quantized_rcnn(
+            args.weight_bits, 'ZL', d, k, r, hidden, npol=args.npol, stop_round=None,
+            has_nonuniform_response=False, do_all_data_qubits=False, return_all_rounds=False)
     _ = model([det_bits[0:1], det_evts[0:1]])  # build
     model.load_weights(args.weights)
 
