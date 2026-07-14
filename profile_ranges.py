@@ -36,6 +36,7 @@ import numpy as np
 _CAP = {}
 _HOOKED = set()
 _INSTANCE_IDX = {}         # id(layer_instance) -> "ClassName#idx"
+_META = {}                 # "ClassName#idx" -> structural meta (e.g. correlator state-count n)
 _SUBSAMPLE = 20000
 _rng = np.random.default_rng(0)
 
@@ -200,6 +201,78 @@ def install_output_hooks(model):
             layer.call = make_layer(olc, tag, vclass)
 
 
+def install_correlator_lambda(model):
+    """Measure the phase matrix C's definiteness DIRECTLY -- the cause of combination<=0,
+    and what makes "constrain C to be PSD" a concrete alternative to signed-LSE.
+
+    C is n x n, diag 1, off-diag c_phi,ij = the model's ACTUAL cpwgt_activation output
+    (captured, not recomputed from weights). Per shot: eigvalsh(C), record frac lambda_min<0.
+
+    Everything verified against CNNStateCorrelator.call source (NOT assumed):
+      * n = len(inputs): the loop at :1886 runs range(self.rounds) over state_args, built at
+        :1862 `for ist, state in enumerate(inputs)` -> len(inputs)==len(state_args)==rounds.
+        Asserted == rounds (crash on disagreement).
+      * one cpwgt_activation call per phase (:1854-1858 loop) -> len(_phi_buf)==n_phases.
+      * pairing (:1894 index `jst + ist*(R-1) - (ist+1)*ist//2 - 1`) is upper-tri row-major
+        (n=3: (0,1)->0,(0,2)->1,(1,2)->2 == np.triu_indices(n,1)).
+      * two_cos_phi = cpwgt_activation*2, so cpwgt_activation output == c_phi == C off-diag.
+    PROOF the assembly is correct: for n=2, C=[[1,c],[c,1]], lambda_min = 1-|c| > 0 for
+    |c|<1 ALWAYS -- so any n=2 lambda_min<0 means the assembly is wrong, and we crash."""
+    import CNNModel
+    for m in model.submodules:
+        if not isinstance(m, CNNModel.CNNStateCorrelator):
+            continue
+        inst = _INSTANCE_IDX[id(m)]
+        if not hasattr(m, 'n_phases'):
+            raise RuntimeError(f'{inst}: CNNStateCorrelator has no n_phases attribute')
+        # a "sample" = one (shot, output-element): cpwgt_activation returns (batch, out_dim=num_outputs)
+        # per pair, so C is assembled per (shot, data-qubit slot). frac_nonpositive shares this same
+        # flattened denominator, so the necessity bound frac(lambda<0) >= frac(nonpos) is valid.
+        _META[inst] = dict(n_states=None, n_phases=int(m.n_phases),
+                           rounds_attr=int(getattr(m, 'rounds', -1)),
+                           n_samples=0, n_lambda_neg=0)
+        m._phi_buf = []
+        o_act = m.cpwgt_activation
+        def make_act(o_act, mm):
+            def wact(x):
+                y = o_act(x)
+                mm._phi_buf.append(np.asarray(y).reshape(-1))
+                return y
+            return wact
+        m.cpwgt_activation = make_act(o_act, m)
+        o_call = m.call
+        def make_call(o_call, mm, inst):
+            def hooked(inputs, *a, **kw):
+                mm._phi_buf = []                        # cleared every call (not across batches)
+                y = o_call(inputs, *a, **kw)            # real forward, populates _phi_buf
+                n = len(inputs)                         # MEASURED (state list), not metadata
+                L = _META[inst]
+                if L['n_states'] is None:
+                    L['n_states'] = n
+                    assert n == L['rounds_attr'], f'{inst}: measured n={n} != rounds={L["rounds_attr"]}'
+                    assert L['n_phases'] == n * (n - 1) // 2, \
+                        f'{inst}: n_phases={L["n_phases"]} != C(n,2)={n*(n-1)//2}'
+                if n < 2 or L['n_phases'] == 0:
+                    return y
+                assert len(mm._phi_buf) == L['n_phases'], \
+                    f'{inst}: captured {len(mm._phi_buf)} phases != n_phases {L["n_phases"]}'
+                b = mm._phi_buf[0].shape[0]
+                phi = np.stack(mm._phi_buf, axis=1)     # (batch, n_phases), upper-tri row-major
+                assert phi.shape == (b, L['n_phases']), \
+                    f'{inst}: phase tensor {phi.shape} != (batch,{L["n_phases"]}) -- multi-output phase?'
+                C = np.tile(np.eye(n), (b, 1, 1))
+                iu = np.triu_indices(n, 1)
+                C[:, iu[0], iu[1]] = phi; C[:, iu[1], iu[0]] = phi
+                lam = np.linalg.eigvalsh(C)[:, 0]       # smallest eigenvalue per shot
+                if n == 2:                              # correctness proof: 1-|c|>0 always
+                    assert (lam > -1e-9).all(), \
+                        f'{inst} n=2 lambda_min<0 ({lam.min():.2e}) -- C ASSEMBLY IS WRONG, not indefinite'
+                L['n_samples'] += b; L['n_lambda_neg'] += int((lam < 0).sum())
+                return y
+            return hooked
+        m.call = make_call(o_call, m, inst)
+
+
 def run():
     ap = argparse.ArgumentParser()
     ap.add_argument('--weights', required=True)
@@ -256,6 +329,7 @@ def run():
     _ = model([det_bits[0:1], det_evts[0:1]])
     model.load_weights(args.weights)
     install_output_hooks(model)
+    install_correlator_lambda(model)     # direct lambda_min(C) measurement (needs _INSTANCE_IDX)
     _CAP.clear()
     global _rng
     _rng = np.random.default_rng(0)
@@ -323,6 +397,13 @@ def run():
             '(cphi/alpha, analytic I=1); accumulator width is a Phase-4 HLS decision. Deliberate scope.',
         ],
     )
+    # correlator C-definiteness: measured n + frac shots with lambda_min(C)<0 (cause of combination<=0)
+    corr_lambda = {}
+    for inst, L in _META.items():
+        frac = (L['n_lambda_neg'] / L['n_samples']) if L['n_samples'] else 0.0
+        corr_lambda[inst] = dict(n_states=L['n_states'], n_phases=L['n_phases'],
+                                 n_samples=L['n_samples'], frac_lambda_min_neg=frac)
+    report['_correlator_lambda'] = corr_lambda
     report['_provenance'] = dict(
         weights=os.path.basename(args.weights), seed=seed, pool=os.path.basename(args.pool),
         pool_gen_seed=gen_seed, weight_bits=args.weight_bits, n_test=nte,
@@ -351,7 +432,13 @@ def run():
         print(f'  {s}: val∈[{v["min"]:.3g},{v["max"]:.3g}]  eff z∈[{_fz(v["eff_z_min"])},{_fz(v["eff_z_max"])}]  '
               f'frac_NONPOS={v.get("frac_nonpositive",0):.2%}  frac_clipped={v.get("frac_clipped",0):.2%}')
     if any(v.get('frac_nonpositive', 0) > 0 for v in comb.values()):
-        print('  !! combination <=0 present -> log needs SIGNED LSE (materially harder)')
+        print('  !! combination <=0 present. CAUSE below (lambda_min(C)<0). Remedy (signed-LSE vs '
+              'PSD-constrained c_phi) is a Phase-4 design choice, NOT decided here.')
+    print('\n=== READ FIRST (a2): phase matrix C definiteness (the CAUSE, measured per instance) ===')
+    for inst in sorted(report['_correlator_lambda'], key=lambda k: int(k.split("#")[1])):
+        c = report['_correlator_lambda'][inst]
+        print(f'  {inst:22s} n={c["n_states"]}  frac(lambda_min<0)={c["frac_lambda_min_neg"]:.2%}')
+    print('  (n=2 => provably PSD => 0%; n>=3 => C unconstrained => can be indefinite)')
 
     layer_sites = [s for s in report if not (s.startswith('_') or s.startswith('combination_preclip')
                                              or s.startswith('zlike_preclip'))]
