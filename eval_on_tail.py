@@ -22,6 +22,14 @@ import os
 import numpy as np
 
 
+def rcnn_pred_and_correct(pred, truth):
+    """Single source of the RCNN decision conventions: output-shape flatten, 0.5 threshold,
+    `flips` as truth. Imported by profile_ranges.py so its p_L wrap-check uses THIS logic,
+    not a reimplementation (a divergent copy is exactly the class of bug we keep catching)."""
+    rcnn_pred = (np.asarray(pred) > 0.5).astype(np.int8).reshape(-1)
+    return rcnn_pred, (rcnn_pred == truth)
+
+
 def lookup_mwpm(data_dir, d, p, rounds):
     path = os.path.join(data_dir, "mwpm_baseline.csv")
     if not os.path.exists(path):
@@ -151,8 +159,7 @@ def run():
 
     pred = model.predict([det_bits[te], det_evts[te]], batch_size=args.batch_size, verbose=0)
     truth = flips[te].astype(np.int8).reshape(-1)
-    rcnn_pred = (pred > 0.5).astype(np.int8).reshape(-1)
-    rcnn_correct = (rcnn_pred == truth)
+    rcnn_pred, rcnn_correct = rcnn_pred_and_correct(pred, truth)
     pL = float((~rcnn_correct).mean())
     base_rate = float(truth.mean())
     mwpm = lookup_mwpm(args.data_dir, d, p, r)

@@ -206,7 +206,9 @@ def run():
     ap.add_argument('--weight-bits', type=int, default=6)
     ap.add_argument('--expect-pl', type=float, default=None,
                     help='sweep-recorded w6 p_L for this seed; asserts the profiled model reproduces it')
-    ap.add_argument('--pl-tol', type=float, default=2e-3)
+    ap.add_argument('--pl-tol', type=float, default=1e-6,
+                    help='exact-match floor: the sweep CSV stores round(p_L,6), so 1e-6 is CSV '
+                         'rounding, NOT slack. A perturbing wrap would diverge ~1e-3+.')
     ap.add_argument('--d', type=int, default=5); ap.add_argument('--p', type=float, default=0.010)
     ap.add_argument('--rounds', type=int, default=3); ap.add_argument('--kernel', type=int, default=3)
     ap.add_argument('--hidden', type=int, default=100); ap.add_argument('--hidden-layers', type=int, default=2)
@@ -230,6 +232,7 @@ def run():
     from types_cfg import get_types
     from circuit_partition import split_measurements
     from CNNModel_quantized import build_quantized_rcnn
+    from eval_on_tail import rcnn_pred_and_correct           # single source of the p_L conventions
 
     d, p, r, k, nte = args.d, args.p, args.rounds, args.kernel, args.n_test
     binary_t, time_t, idx_t, packed_t = get_types(d, r, k)
@@ -257,16 +260,18 @@ def run():
     global _rng
     _rng = np.random.default_rng(0)
 
-    n = db.shape[0]; preds = np.empty(n, dtype=np.float32)
+    n = db.shape[0]; pred_batches = []
     for i in range(0, n, args.batch_size):
         j = min(i + args.batch_size, n)
         y = model([db[i:j], de[i:j]], training=False)          # eager -> per-batch capture
-        preds[i:j] = np.asarray(y).reshape(-1)
+        pred_batches.append(np.asarray(y))                     # keep native shape; helper owns flatten
         print(f'[profile] {j}/{n}', end='\r', flush=True)
     print()
 
     # p_L reproduction check: hooks are pure wraps -> must match the sweep's recorded w6 p_L exactly.
-    pL = float(((preds > 0.5).astype(np.int8) != truth).mean())
+    # Uses eval_on_tail's OWN conventions (shape/threshold/truth), not a local copy.
+    _, correct = rcnn_pred_and_correct(np.concatenate(pred_batches, axis=0), truth)
+    pL = float((~correct).mean())
     print(f'[profile] profiled-model p_L = {pL:.6f}'
           + (f'  (expected {args.expect_pl:.6f}, |d|={abs(pL-args.expect_pl):.2e})' if args.expect_pl else ''))
     if args.expect_pl is not None:
@@ -313,6 +318,8 @@ def run():
         zlike_preclip_absmax=max((v['absmax'] for v in zpre.values()), default=None),
         zlike_preclip_within_2x=all(v['absmax'] <= 2 * zb + 1e-3 for v in zpre.values()) if zpre else None,
         type_violations=[s for s, v in report.items() if isinstance(v, dict) and v.get('type_violation')],
+        n_clip_sites=sum(1 for k in _CAP if 'preclip' in k),
+        n_clip_sites_aggregated=sum(1 for k in _CAP if 'preclip' in k and k.endswith('#agg')),
     )
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -359,6 +366,8 @@ def run():
     print(f'\nSANITY dec_in⊆±{zb:g}:{sn["dec_in_within_bound"]}  '
           f'zlike_preclip⊆±{2*zb:g}:{sn["zlike_preclip_within_2x"]} (absmax={sn["zlike_preclip_absmax"]:.3g})  '
           f'type_violations={sn["type_violations"]}')
+    print(f'CLIP KEYING clip_sites={sn["n_clip_sites"]}  aggregated(#agg,no-self)={sn["n_clip_sites_aggregated"]}  '
+          f'(agg>0 => those rows are NOT per-instance)')
 
 
 if __name__ == '__main__':
