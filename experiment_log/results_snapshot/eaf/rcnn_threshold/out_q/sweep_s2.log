@@ -1,0 +1,608 @@
+nohup: ignoring input
+=== QAT PARETO SWEEP  bits=[8, 6, 4, 3, 2] seeds=[2]  n_train=10,000,000 n_test=200,000 ===
+--- w8 seed2 ---
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/train_one_quantized.py --d 5 --p 0.01 --rounds 3 --kernel 3 --seed 2 --n-train 10000000 --n-test 200000 --weight-bits 8 --epochs 50 --batch-size 10000 --hidden 100 --hidden-layers 2 --npol 2 --data-dir /home/kchey/rcnn_threshold/pools --test-pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --out-dir /home/kchey/rcnn_threshold/out_q --no-early-stopping
+2026-07-09 19:00:51.832860: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-09 19:00:51.832950: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-09 19:00:51.837917: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+[qtrain] TF 2.15.1  GPUs: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Epoch 1/50
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783623789.485006    2168 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+800/800 - 330s - loss: 0.2814 - accuracy: 0.8698 - val_loss: 0.1629 - val_accuracy: 0.9328 - lr: 0.0100 - 330s/epoch - 413ms/step
+Epoch 2/50
+800/800 - 178s - loss: 0.1491 - accuracy: 0.9396 - val_loss: 0.1406 - val_accuracy: 0.9436 - lr: 0.0090 - 178s/epoch - 223ms/step
+Epoch 3/50
+800/800 - 180s - loss: 0.1350 - accuracy: 0.9463 - val_loss: 0.1323 - val_accuracy: 0.9478 - lr: 0.0080 - 180s/epoch - 225ms/step
+Epoch 4/50
+800/800 - 180s - loss: 0.1300 - accuracy: 0.9486 - val_loss: 0.1377 - val_accuracy: 0.9451 - lr: 0.0070 - 180s/epoch - 225ms/step
+Epoch 5/50
+800/800 - 184s - loss: 0.1272 - accuracy: 0.9498 - val_loss: 0.1267 - val_accuracy: 0.9500 - lr: 0.0060 - 184s/epoch - 230ms/step
+Epoch 6/50
+800/800 - 179s - loss: 0.1243 - accuracy: 0.9510 - val_loss: 0.1253 - val_accuracy: 0.9508 - lr: 0.0050 - 179s/epoch - 224ms/step
+Epoch 7/50
+800/800 - 187s - loss: 0.1222 - accuracy: 0.9520 - val_loss: 0.1228 - val_accuracy: 0.9517 - lr: 0.0040 - 187s/epoch - 234ms/step
+Epoch 8/50
+800/800 - 187s - loss: 0.1202 - accuracy: 0.9528 - val_loss: 0.1217 - val_accuracy: 0.9523 - lr: 0.0030 - 187s/epoch - 233ms/step
+Epoch 9/50
+800/800 - 205s - loss: 0.1181 - accuracy: 0.9537 - val_loss: 0.1197 - val_accuracy: 0.9531 - lr: 0.0020 - 205s/epoch - 257ms/step
+Epoch 10/50
+800/800 - 183s - loss: 0.1160 - accuracy: 0.9545 - val_loss: 0.1182 - val_accuracy: 0.9537 - lr: 0.0010 - 183s/epoch - 229ms/step
+Epoch 11/50
+800/800 - 187s - loss: 0.1158 - accuracy: 0.9546 - val_loss: 0.1188 - val_accuracy: 0.9534 - lr: 9.0000e-04 - 187s/epoch - 234ms/step
+Epoch 12/50
+800/800 - 185s - loss: 0.1153 - accuracy: 0.9549 - val_loss: 0.1177 - val_accuracy: 0.9539 - lr: 8.1000e-04 - 185s/epoch - 231ms/step
+Epoch 13/50
+800/800 - 187s - loss: 0.1147 - accuracy: 0.9551 - val_loss: 0.1177 - val_accuracy: 0.9539 - lr: 7.2900e-04 - 187s/epoch - 233ms/step
+Epoch 14/50
+800/800 - 185s - loss: 0.1144 - accuracy: 0.9552 - val_loss: 0.1177 - val_accuracy: 0.9538 - lr: 6.5610e-04 - 185s/epoch - 231ms/step
+Epoch 15/50
+800/800 - 186s - loss: 0.1141 - accuracy: 0.9553 - val_loss: 0.1175 - val_accuracy: 0.9540 - lr: 5.9049e-04 - 186s/epoch - 233ms/step
+Epoch 16/50
+800/800 - 185s - loss: 0.1138 - accuracy: 0.9554 - val_loss: 0.1171 - val_accuracy: 0.9540 - lr: 5.3144e-04 - 185s/epoch - 231ms/step
+Epoch 17/50
+800/800 - 205s - loss: 0.1136 - accuracy: 0.9556 - val_loss: 0.1172 - val_accuracy: 0.9541 - lr: 4.7830e-04 - 205s/epoch - 256ms/step
+Epoch 18/50
+800/800 - 184s - loss: 0.1134 - accuracy: 0.9557 - val_loss: 0.1171 - val_accuracy: 0.9542 - lr: 4.3047e-04 - 184s/epoch - 230ms/step
+Epoch 19/50
+800/800 - 183s - loss: 0.1132 - accuracy: 0.9557 - val_loss: 0.1171 - val_accuracy: 0.9541 - lr: 3.8742e-04 - 183s/epoch - 229ms/step
+Epoch 20/50
+800/800 - 202s - loss: 0.1130 - accuracy: 0.9558 - val_loss: 0.1169 - val_accuracy: 0.9543 - lr: 3.4868e-04 - 202s/epoch - 252ms/step
+Epoch 21/50
+800/800 - 194s - loss: 0.1128 - accuracy: 0.9559 - val_loss: 0.1168 - val_accuracy: 0.9543 - lr: 2.7894e-04 - 194s/epoch - 243ms/step
+Epoch 22/50
+800/800 - 190s - loss: 0.1126 - accuracy: 0.9560 - val_loss: 0.1168 - val_accuracy: 0.9543 - lr: 2.2315e-04 - 190s/epoch - 238ms/step
+Epoch 23/50
+800/800 - 194s - loss: 0.1124 - accuracy: 0.9560 - val_loss: 0.1167 - val_accuracy: 0.9543 - lr: 1.7852e-04 - 194s/epoch - 242ms/step
+Epoch 24/50
+800/800 - 212s - loss: 0.1123 - accuracy: 0.9561 - val_loss: 0.1165 - val_accuracy: 0.9544 - lr: 1.4282e-04 - 212s/epoch - 265ms/step
+Epoch 25/50
+800/800 - 233s - loss: 0.1122 - accuracy: 0.9561 - val_loss: 0.1167 - val_accuracy: 0.9543 - lr: 1.1425e-04 - 233s/epoch - 291ms/step
+Epoch 26/50
+800/800 - 194s - loss: 0.1121 - accuracy: 0.9562 - val_loss: 0.1165 - val_accuracy: 0.9543 - lr: 9.1404e-05 - 194s/epoch - 242ms/step
+Epoch 27/50
+800/800 - 187s - loss: 0.1120 - accuracy: 0.9562 - val_loss: 0.1165 - val_accuracy: 0.9544 - lr: 7.3123e-05 - 187s/epoch - 233ms/step
+Epoch 28/50
+800/800 - 180s - loss: 0.1120 - accuracy: 0.9562 - val_loss: 0.1166 - val_accuracy: 0.9543 - lr: 5.8499e-05 - 180s/epoch - 225ms/step
+Epoch 29/50
+800/800 - 223s - loss: 0.1119 - accuracy: 0.9563 - val_loss: 0.1165 - val_accuracy: 0.9543 - lr: 4.6799e-05 - 223s/epoch - 279ms/step
+Epoch 30/50
+800/800 - 207s - loss: 0.1118 - accuracy: 0.9563 - val_loss: 0.1165 - val_accuracy: 0.9543 - lr: 3.7439e-05 - 207s/epoch - 259ms/step
+Epoch 31/50
+800/800 - 180s - loss: 0.1118 - accuracy: 0.9563 - val_loss: 0.1165 - val_accuracy: 0.9544 - lr: 2.4335e-05 - 180s/epoch - 225ms/step
+Epoch 32/50
+800/800 - 224s - loss: 0.1117 - accuracy: 0.9564 - val_loss: 0.1164 - val_accuracy: 0.9544 - lr: 1.5818e-05 - 224s/epoch - 281ms/step
+Epoch 33/50
+800/800 - 273s - loss: 0.1117 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 1.0282e-05 - 273s/epoch - 341ms/step
+Epoch 34/50
+800/800 - 270s - loss: 0.1116 - accuracy: 0.9563 - val_loss: 0.1164 - val_accuracy: 0.9544 - lr: 6.6831e-06 - 270s/epoch - 338ms/step
+Epoch 35/50
+800/800 - 272s - loss: 0.1116 - accuracy: 0.9564 - val_loss: 0.1164 - val_accuracy: 0.9544 - lr: 4.3440e-06 - 272s/epoch - 340ms/step
+Epoch 36/50
+800/800 - 269s - loss: 0.1116 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 2.8236e-06 - 269s/epoch - 336ms/step
+Epoch 37/50
+800/800 - 273s - loss: 0.1116 - accuracy: 0.9564 - val_loss: 0.1164 - val_accuracy: 0.9545 - lr: 1.8353e-06 - 273s/epoch - 341ms/step
+Epoch 38/50
+800/800 - 254s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 1.1930e-06 - 254s/epoch - 318ms/step
+Epoch 39/50
+800/800 - 278s - loss: 0.1116 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 7.7543e-07 - 278s/epoch - 348ms/step
+Epoch 40/50
+800/800 - 292s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1164 - val_accuracy: 0.9544 - lr: 5.0403e-07 - 292s/epoch - 365ms/step
+Epoch 41/50
+800/800 - 291s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 3.2762e-07 - 291s/epoch - 364ms/step
+Epoch 42/50
+800/800 - 196s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1164 - val_accuracy: 0.9544 - lr: 2.1295e-07 - 196s/epoch - 245ms/step
+Epoch 43/50
+800/800 - 258s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 1.3842e-07 - 258s/epoch - 322ms/step
+Epoch 44/50
+800/800 - 177s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 8.9973e-08 - 177s/epoch - 221ms/step
+Epoch 45/50
+800/800 - 177s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 5.8482e-08 - 177s/epoch - 222ms/step
+Epoch 46/50
+800/800 - 178s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 3.8014e-08 - 178s/epoch - 222ms/step
+Epoch 47/50
+800/800 - 175s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 2.4709e-08 - 175s/epoch - 219ms/step
+Epoch 48/50
+800/800 - 175s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 1.6061e-08 - 175s/epoch - 219ms/step
+Epoch 49/50
+800/800 - 174s - loss: 0.1115 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9545 - lr: 1.0439e-08 - 174s/epoch - 218ms/step
+Epoch 50/50
+800/800 - 176s - loss: 0.1114 - accuracy: 0.9564 - val_loss: 0.1163 - val_accuracy: 0.9544 - lr: 6.7857e-09 - 176s/epoch - 219ms/step
+[qtrain] rcnn_d5_p0.010_r3_w8_seed2_ntr10000000  p_L=0.04612  MWPM=0.04510  ratio=1.023x  size=50.34KB  (50ep 10464s 51547p)
+--- w6 seed2 ---
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/train_one_quantized.py --d 5 --p 0.01 --rounds 3 --kernel 3 --seed 2 --n-train 10000000 --n-test 200000 --weight-bits 6 --epochs 50 --batch-size 10000 --hidden 100 --hidden-layers 2 --npol 2 --data-dir /home/kchey/rcnn_threshold/pools --test-pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --out-dir /home/kchey/rcnn_threshold/out_q --no-early-stopping
+2026-07-09 21:56:18.313847: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-09 21:56:18.315426: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-09 21:56:18.318780: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+[qtrain] TF 2.15.1  GPUs: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Epoch 1/50
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783634317.614200   17235 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+800/800 - 332s - loss: 0.3269 - accuracy: 0.8480 - val_loss: 0.2019 - val_accuracy: 0.9130 - lr: 0.0100 - 332s/epoch - 414ms/step
+Epoch 2/50
+800/800 - 179s - loss: 0.1703 - accuracy: 0.9296 - val_loss: 0.1526 - val_accuracy: 0.9383 - lr: 0.0090 - 179s/epoch - 223ms/step
+Epoch 3/50
+800/800 - 180s - loss: 0.1470 - accuracy: 0.9408 - val_loss: 0.1421 - val_accuracy: 0.9431 - lr: 0.0080 - 180s/epoch - 226ms/step
+Epoch 4/50
+800/800 - 180s - loss: 0.1389 - accuracy: 0.9445 - val_loss: 0.1376 - val_accuracy: 0.9450 - lr: 0.0070 - 180s/epoch - 225ms/step
+Epoch 5/50
+800/800 - 180s - loss: 0.1342 - accuracy: 0.9467 - val_loss: 0.1326 - val_accuracy: 0.9473 - lr: 0.0060 - 180s/epoch - 225ms/step
+Epoch 6/50
+800/800 - 181s - loss: 0.1309 - accuracy: 0.9481 - val_loss: 0.1307 - val_accuracy: 0.9482 - lr: 0.0050 - 181s/epoch - 227ms/step
+Epoch 7/50
+800/800 - 180s - loss: 0.1283 - accuracy: 0.9492 - val_loss: 0.1284 - val_accuracy: 0.9493 - lr: 0.0040 - 180s/epoch - 225ms/step
+Epoch 8/50
+800/800 - 201s - loss: 0.1261 - accuracy: 0.9502 - val_loss: 0.1269 - val_accuracy: 0.9499 - lr: 0.0030 - 201s/epoch - 251ms/step
+Epoch 9/50
+800/800 - 240s - loss: 0.1241 - accuracy: 0.9510 - val_loss: 0.1252 - val_accuracy: 0.9505 - lr: 0.0020 - 240s/epoch - 300ms/step
+Epoch 10/50
+800/800 - 240s - loss: 0.1219 - accuracy: 0.9519 - val_loss: 0.1238 - val_accuracy: 0.9513 - lr: 0.0010 - 240s/epoch - 299ms/step
+Epoch 11/50
+800/800 - 252s - loss: 0.1216 - accuracy: 0.9520 - val_loss: 0.1240 - val_accuracy: 0.9512 - lr: 9.0000e-04 - 252s/epoch - 315ms/step
+Epoch 12/50
+800/800 - 240s - loss: 0.1212 - accuracy: 0.9523 - val_loss: 0.1225 - val_accuracy: 0.9517 - lr: 8.1000e-04 - 240s/epoch - 300ms/step
+Epoch 13/50
+800/800 - 240s - loss: 0.1208 - accuracy: 0.9524 - val_loss: 0.1230 - val_accuracy: 0.9515 - lr: 7.2900e-04 - 240s/epoch - 300ms/step
+Epoch 14/50
+800/800 - 240s - loss: 0.1204 - accuracy: 0.9525 - val_loss: 0.1226 - val_accuracy: 0.9516 - lr: 6.5610e-04 - 240s/epoch - 300ms/step
+Epoch 15/50
+800/800 - 241s - loss: 0.1201 - accuracy: 0.9527 - val_loss: 0.1227 - val_accuracy: 0.9518 - lr: 5.9049e-04 - 241s/epoch - 301ms/step
+Epoch 16/50
+800/800 - 240s - loss: 0.1198 - accuracy: 0.9528 - val_loss: 0.1220 - val_accuracy: 0.9519 - lr: 5.3144e-04 - 240s/epoch - 300ms/step
+Epoch 17/50
+800/800 - 242s - loss: 0.1196 - accuracy: 0.9529 - val_loss: 0.1221 - val_accuracy: 0.9519 - lr: 4.7830e-04 - 242s/epoch - 303ms/step
+Epoch 18/50
+800/800 - 241s - loss: 0.1193 - accuracy: 0.9531 - val_loss: 0.1220 - val_accuracy: 0.9519 - lr: 4.3047e-04 - 241s/epoch - 301ms/step
+Epoch 19/50
+800/800 - 239s - loss: 0.1191 - accuracy: 0.9532 - val_loss: 0.1216 - val_accuracy: 0.9521 - lr: 3.8742e-04 - 239s/epoch - 299ms/step
+Epoch 20/50
+800/800 - 242s - loss: 0.1188 - accuracy: 0.9533 - val_loss: 0.1216 - val_accuracy: 0.9521 - lr: 3.4868e-04 - 242s/epoch - 303ms/step
+Epoch 21/50
+800/800 - 239s - loss: 0.1185 - accuracy: 0.9534 - val_loss: 0.1215 - val_accuracy: 0.9521 - lr: 2.7894e-04 - 239s/epoch - 299ms/step
+Epoch 22/50
+800/800 - 249s - loss: 0.1183 - accuracy: 0.9535 - val_loss: 0.1208 - val_accuracy: 0.9524 - lr: 2.2315e-04 - 249s/epoch - 311ms/step
+Epoch 23/50
+800/800 - 240s - loss: 0.1181 - accuracy: 0.9536 - val_loss: 0.1210 - val_accuracy: 0.9524 - lr: 1.7852e-04 - 240s/epoch - 300ms/step
+Epoch 24/50
+800/800 - 242s - loss: 0.1179 - accuracy: 0.9536 - val_loss: 0.1208 - val_accuracy: 0.9525 - lr: 1.4282e-04 - 242s/epoch - 302ms/step
+Epoch 25/50
+800/800 - 246s - loss: 0.1179 - accuracy: 0.9537 - val_loss: 0.1211 - val_accuracy: 0.9523 - lr: 1.1425e-04 - 246s/epoch - 307ms/step
+Epoch 26/50
+800/800 - 245s - loss: 0.1177 - accuracy: 0.9537 - val_loss: 0.1212 - val_accuracy: 0.9523 - lr: 9.1404e-05 - 245s/epoch - 306ms/step
+Epoch 27/50
+800/800 - 246s - loss: 0.1176 - accuracy: 0.9538 - val_loss: 0.1210 - val_accuracy: 0.9524 - lr: 7.3123e-05 - 246s/epoch - 307ms/step
+Epoch 28/50
+800/800 - 247s - loss: 0.1175 - accuracy: 0.9538 - val_loss: 0.1206 - val_accuracy: 0.9525 - lr: 5.8499e-05 - 247s/epoch - 309ms/step
+Epoch 29/50
+800/800 - 249s - loss: 0.1174 - accuracy: 0.9539 - val_loss: 0.1207 - val_accuracy: 0.9524 - lr: 4.6799e-05 - 249s/epoch - 311ms/step
+Epoch 30/50
+800/800 - 247s - loss: 0.1174 - accuracy: 0.9539 - val_loss: 0.1205 - val_accuracy: 0.9526 - lr: 3.7439e-05 - 247s/epoch - 308ms/step
+Epoch 31/50
+800/800 - 244s - loss: 0.1172 - accuracy: 0.9539 - val_loss: 0.1205 - val_accuracy: 0.9525 - lr: 2.4335e-05 - 244s/epoch - 306ms/step
+Epoch 32/50
+800/800 - 243s - loss: 0.1171 - accuracy: 0.9540 - val_loss: 0.1204 - val_accuracy: 0.9526 - lr: 1.5818e-05 - 243s/epoch - 304ms/step
+Epoch 33/50
+800/800 - 242s - loss: 0.1169 - accuracy: 0.9541 - val_loss: 0.1205 - val_accuracy: 0.9525 - lr: 1.0282e-05 - 242s/epoch - 303ms/step
+Epoch 34/50
+800/800 - 242s - loss: 0.1169 - accuracy: 0.9541 - val_loss: 0.1203 - val_accuracy: 0.9527 - lr: 6.6831e-06 - 242s/epoch - 303ms/step
+Epoch 35/50
+800/800 - 241s - loss: 0.1168 - accuracy: 0.9541 - val_loss: 0.1204 - val_accuracy: 0.9526 - lr: 4.3440e-06 - 241s/epoch - 301ms/step
+Epoch 36/50
+800/800 - 243s - loss: 0.1168 - accuracy: 0.9541 - val_loss: 0.1205 - val_accuracy: 0.9526 - lr: 2.8236e-06 - 243s/epoch - 303ms/step
+Epoch 37/50
+800/800 - 243s - loss: 0.1168 - accuracy: 0.9541 - val_loss: 0.1202 - val_accuracy: 0.9526 - lr: 1.8353e-06 - 243s/epoch - 303ms/step
+Epoch 38/50
+800/800 - 239s - loss: 0.1167 - accuracy: 0.9542 - val_loss: 0.1202 - val_accuracy: 0.9527 - lr: 1.1930e-06 - 239s/epoch - 299ms/step
+Epoch 39/50
+800/800 - 255s - loss: 0.1166 - accuracy: 0.9542 - val_loss: 0.1202 - val_accuracy: 0.9527 - lr: 7.7543e-07 - 255s/epoch - 318ms/step
+Epoch 40/50
+800/800 - 258s - loss: 0.1166 - accuracy: 0.9542 - val_loss: 0.1202 - val_accuracy: 0.9526 - lr: 5.0403e-07 - 258s/epoch - 322ms/step
+Epoch 41/50
+800/800 - 240s - loss: 0.1166 - accuracy: 0.9542 - val_loss: 0.1201 - val_accuracy: 0.9527 - lr: 3.2762e-07 - 240s/epoch - 300ms/step
+Epoch 42/50
+800/800 - 241s - loss: 0.1166 - accuracy: 0.9542 - val_loss: 0.1202 - val_accuracy: 0.9527 - lr: 2.1295e-07 - 241s/epoch - 301ms/step
+Epoch 43/50
+800/800 - 260s - loss: 0.1166 - accuracy: 0.9542 - val_loss: 0.1201 - val_accuracy: 0.9528 - lr: 1.3842e-07 - 260s/epoch - 325ms/step
+Epoch 44/50
+800/800 - 241s - loss: 0.1165 - accuracy: 0.9542 - val_loss: 0.1201 - val_accuracy: 0.9528 - lr: 8.9973e-08 - 241s/epoch - 301ms/step
+Epoch 45/50
+800/800 - 242s - loss: 0.1164 - accuracy: 0.9543 - val_loss: 0.1200 - val_accuracy: 0.9528 - lr: 5.8482e-08 - 242s/epoch - 302ms/step
+Epoch 46/50
+800/800 - 240s - loss: 0.1164 - accuracy: 0.9543 - val_loss: 0.1200 - val_accuracy: 0.9528 - lr: 3.8014e-08 - 240s/epoch - 300ms/step
+Epoch 47/50
+800/800 - 241s - loss: 0.1162 - accuracy: 0.9544 - val_loss: 0.1199 - val_accuracy: 0.9528 - lr: 2.4709e-08 - 241s/epoch - 301ms/step
+Epoch 48/50
+800/800 - 241s - loss: 0.1162 - accuracy: 0.9544 - val_loss: 0.1199 - val_accuracy: 0.9528 - lr: 1.6061e-08 - 241s/epoch - 301ms/step
+Epoch 49/50
+800/800 - 245s - loss: 0.1161 - accuracy: 0.9544 - val_loss: 0.1198 - val_accuracy: 0.9529 - lr: 1.0439e-08 - 245s/epoch - 307ms/step
+Epoch 50/50
+800/800 - 249s - loss: 0.1160 - accuracy: 0.9545 - val_loss: 0.1197 - val_accuracy: 0.9529 - lr: 6.7857e-09 - 249s/epoch - 311ms/step
+[qtrain] rcnn_d5_p0.010_r3_w6_seed2_ntr10000000  p_L=0.04775  MWPM=0.04510  ratio=1.059x  size=37.75KB  (50ep 11851s 51547p)
+--- w4 seed2 ---
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/train_one_quantized.py --d 5 --p 0.01 --rounds 3 --kernel 3 --seed 2 --n-train 10000000 --n-test 200000 --weight-bits 4 --epochs 50 --batch-size 10000 --hidden 100 --hidden-layers 2 --npol 2 --data-dir /home/kchey/rcnn_threshold/pools --test-pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --out-dir /home/kchey/rcnn_threshold/out_q --no-early-stopping
+2026-07-10 01:14:49.920925: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-10 01:14:49.922627: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-10 01:14:49.925806: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+[qtrain] TF 2.15.1  GPUs: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Epoch 1/50
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783646247.208849   32333 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+800/800 - 427s - loss: 0.2899 - accuracy: 0.8661 - val_loss: 0.2021 - val_accuracy: 0.9131 - lr: 0.0100 - 427s/epoch - 534ms/step
+Epoch 2/50
+800/800 - 254s - loss: 0.1833 - accuracy: 0.9228 - val_loss: 0.1779 - val_accuracy: 0.9259 - lr: 0.0090 - 254s/epoch - 317ms/step
+Epoch 3/50
+800/800 - 262s - loss: 0.1664 - accuracy: 0.9316 - val_loss: 0.1622 - val_accuracy: 0.9341 - lr: 0.0080 - 262s/epoch - 327ms/step
+Epoch 4/50
+800/800 - 254s - loss: 0.1583 - accuracy: 0.9356 - val_loss: 0.1571 - val_accuracy: 0.9363 - lr: 0.0070 - 254s/epoch - 317ms/step
+Epoch 5/50
+800/800 - 253s - loss: 0.1544 - accuracy: 0.9374 - val_loss: 0.1630 - val_accuracy: 0.9342 - lr: 0.0060 - 253s/epoch - 316ms/step
+Epoch 6/50
+800/800 - 254s - loss: 0.1513 - accuracy: 0.9390 - val_loss: 0.1541 - val_accuracy: 0.9379 - lr: 0.0050 - 254s/epoch - 317ms/step
+Epoch 7/50
+800/800 - 254s - loss: 0.1482 - accuracy: 0.9403 - val_loss: 0.1509 - val_accuracy: 0.9394 - lr: 0.0040 - 254s/epoch - 317ms/step
+Epoch 8/50
+800/800 - 254s - loss: 0.1457 - accuracy: 0.9417 - val_loss: 0.1484 - val_accuracy: 0.9404 - lr: 0.0030 - 254s/epoch - 317ms/step
+Epoch 9/50
+800/800 - 252s - loss: 0.1430 - accuracy: 0.9428 - val_loss: 0.1428 - val_accuracy: 0.9425 - lr: 0.0020 - 252s/epoch - 315ms/step
+Epoch 10/50
+800/800 - 253s - loss: 0.1395 - accuracy: 0.9442 - val_loss: 0.1399 - val_accuracy: 0.9441 - lr: 0.0010 - 253s/epoch - 316ms/step
+Epoch 11/50
+800/800 - 251s - loss: 0.1395 - accuracy: 0.9442 - val_loss: 0.1403 - val_accuracy: 0.9437 - lr: 9.0000e-04 - 251s/epoch - 313ms/step
+Epoch 12/50
+800/800 - 252s - loss: 0.1393 - accuracy: 0.9444 - val_loss: 0.1400 - val_accuracy: 0.9439 - lr: 8.1000e-04 - 252s/epoch - 315ms/step
+Epoch 13/50
+800/800 - 251s - loss: 0.1388 - accuracy: 0.9446 - val_loss: 0.1400 - val_accuracy: 0.9441 - lr: 7.2900e-04 - 251s/epoch - 313ms/step
+Epoch 14/50
+800/800 - 253s - loss: 0.1387 - accuracy: 0.9446 - val_loss: 0.1402 - val_accuracy: 0.9440 - lr: 6.5610e-04 - 253s/epoch - 316ms/step
+Epoch 15/50
+800/800 - 252s - loss: 0.1383 - accuracy: 0.9449 - val_loss: 0.1394 - val_accuracy: 0.9441 - lr: 5.9049e-04 - 252s/epoch - 315ms/step
+Epoch 16/50
+800/800 - 252s - loss: 0.1380 - accuracy: 0.9449 - val_loss: 0.1384 - val_accuracy: 0.9447 - lr: 5.3144e-04 - 252s/epoch - 314ms/step
+Epoch 17/50
+800/800 - 250s - loss: 0.1377 - accuracy: 0.9451 - val_loss: 0.1405 - val_accuracy: 0.9444 - lr: 4.7830e-04 - 250s/epoch - 312ms/step
+Epoch 18/50
+800/800 - 252s - loss: 0.1374 - accuracy: 0.9452 - val_loss: 0.1377 - val_accuracy: 0.9452 - lr: 4.3047e-04 - 252s/epoch - 315ms/step
+Epoch 19/50
+800/800 - 250s - loss: 0.1372 - accuracy: 0.9453 - val_loss: 0.1372 - val_accuracy: 0.9452 - lr: 3.8742e-04 - 250s/epoch - 313ms/step
+Epoch 20/50
+800/800 - 254s - loss: 0.1369 - accuracy: 0.9454 - val_loss: 0.1372 - val_accuracy: 0.9454 - lr: 3.4868e-04 - 254s/epoch - 317ms/step
+Epoch 21/50
+800/800 - 254s - loss: 0.1365 - accuracy: 0.9455 - val_loss: 0.1372 - val_accuracy: 0.9452 - lr: 2.7894e-04 - 254s/epoch - 317ms/step
+Epoch 22/50
+800/800 - 252s - loss: 0.1360 - accuracy: 0.9458 - val_loss: 0.1365 - val_accuracy: 0.9456 - lr: 2.2315e-04 - 252s/epoch - 315ms/step
+Epoch 23/50
+800/800 - 252s - loss: 0.1359 - accuracy: 0.9459 - val_loss: 0.1373 - val_accuracy: 0.9455 - lr: 1.7852e-04 - 252s/epoch - 315ms/step
+Epoch 24/50
+800/800 - 251s - loss: 0.1356 - accuracy: 0.9460 - val_loss: 0.1365 - val_accuracy: 0.9456 - lr: 1.4282e-04 - 251s/epoch - 313ms/step
+Epoch 25/50
+800/800 - 250s - loss: 0.1353 - accuracy: 0.9462 - val_loss: 0.1363 - val_accuracy: 0.9457 - lr: 1.1425e-04 - 250s/epoch - 313ms/step
+Epoch 26/50
+800/800 - 250s - loss: 0.1352 - accuracy: 0.9461 - val_loss: 0.1369 - val_accuracy: 0.9456 - lr: 9.1404e-05 - 250s/epoch - 313ms/step
+Epoch 27/50
+800/800 - 250s - loss: 0.1349 - accuracy: 0.9463 - val_loss: 0.1359 - val_accuracy: 0.9458 - lr: 7.3123e-05 - 250s/epoch - 312ms/step
+Epoch 28/50
+800/800 - 252s - loss: 0.1345 - accuracy: 0.9465 - val_loss: 0.1352 - val_accuracy: 0.9463 - lr: 5.8499e-05 - 252s/epoch - 315ms/step
+Epoch 29/50
+800/800 - 251s - loss: 0.1344 - accuracy: 0.9465 - val_loss: 0.1354 - val_accuracy: 0.9462 - lr: 4.6799e-05 - 251s/epoch - 314ms/step
+Epoch 30/50
+800/800 - 250s - loss: 0.1344 - accuracy: 0.9465 - val_loss: 0.1356 - val_accuracy: 0.9460 - lr: 3.7439e-05 - 250s/epoch - 313ms/step
+Epoch 31/50
+800/800 - 252s - loss: 0.1340 - accuracy: 0.9467 - val_loss: 0.1356 - val_accuracy: 0.9463 - lr: 2.4335e-05 - 252s/epoch - 315ms/step
+Epoch 32/50
+800/800 - 253s - loss: 0.1337 - accuracy: 0.9468 - val_loss: 0.1362 - val_accuracy: 0.9460 - lr: 1.5818e-05 - 253s/epoch - 316ms/step
+Epoch 33/50
+800/800 - 253s - loss: 0.1335 - accuracy: 0.9469 - val_loss: 0.1349 - val_accuracy: 0.9463 - lr: 1.0282e-05 - 253s/epoch - 316ms/step
+Epoch 34/50
+800/800 - 250s - loss: 0.1331 - accuracy: 0.9470 - val_loss: 0.1351 - val_accuracy: 0.9466 - lr: 6.6831e-06 - 250s/epoch - 312ms/step
+Epoch 35/50
+800/800 - 253s - loss: 0.1329 - accuracy: 0.9471 - val_loss: 0.1347 - val_accuracy: 0.9463 - lr: 4.3440e-06 - 253s/epoch - 316ms/step
+Epoch 36/50
+800/800 - 249s - loss: 0.1328 - accuracy: 0.9472 - val_loss: 0.1352 - val_accuracy: 0.9463 - lr: 2.8236e-06 - 249s/epoch - 311ms/step
+Epoch 37/50
+800/800 - 250s - loss: 0.1326 - accuracy: 0.9473 - val_loss: 0.1350 - val_accuracy: 0.9462 - lr: 1.8353e-06 - 250s/epoch - 312ms/step
+Epoch 38/50
+800/800 - 250s - loss: 0.1326 - accuracy: 0.9473 - val_loss: 0.1352 - val_accuracy: 0.9462 - lr: 1.1930e-06 - 250s/epoch - 313ms/step
+Epoch 39/50
+800/800 - 253s - loss: 0.1324 - accuracy: 0.9473 - val_loss: 0.1342 - val_accuracy: 0.9465 - lr: 7.7543e-07 - 253s/epoch - 316ms/step
+Epoch 40/50
+800/800 - 251s - loss: 0.1323 - accuracy: 0.9474 - val_loss: 0.1340 - val_accuracy: 0.9468 - lr: 5.0403e-07 - 251s/epoch - 314ms/step
+Epoch 41/50
+800/800 - 253s - loss: 0.1322 - accuracy: 0.9473 - val_loss: 0.1342 - val_accuracy: 0.9469 - lr: 3.2762e-07 - 253s/epoch - 316ms/step
+Epoch 42/50
+800/800 - 253s - loss: 0.1322 - accuracy: 0.9475 - val_loss: 0.1339 - val_accuracy: 0.9467 - lr: 2.1295e-07 - 253s/epoch - 317ms/step
+Epoch 43/50
+800/800 - 250s - loss: 0.1320 - accuracy: 0.9475 - val_loss: 0.1336 - val_accuracy: 0.9467 - lr: 1.3842e-07 - 250s/epoch - 313ms/step
+Epoch 44/50
+800/800 - 252s - loss: 0.1317 - accuracy: 0.9477 - val_loss: 0.1337 - val_accuracy: 0.9467 - lr: 8.9973e-08 - 252s/epoch - 314ms/step
+Epoch 45/50
+800/800 - 253s - loss: 0.1311 - accuracy: 0.9478 - val_loss: 0.1325 - val_accuracy: 0.9472 - lr: 5.8482e-08 - 253s/epoch - 316ms/step
+Epoch 46/50
+800/800 - 252s - loss: 0.1306 - accuracy: 0.9481 - val_loss: 0.1321 - val_accuracy: 0.9473 - lr: 3.8014e-08 - 252s/epoch - 315ms/step
+Epoch 47/50
+800/800 - 251s - loss: 0.1300 - accuracy: 0.9483 - val_loss: 0.1320 - val_accuracy: 0.9476 - lr: 2.4709e-08 - 251s/epoch - 314ms/step
+Epoch 48/50
+800/800 - 252s - loss: 0.1291 - accuracy: 0.9487 - val_loss: 0.1311 - val_accuracy: 0.9480 - lr: 1.6061e-08 - 252s/epoch - 315ms/step
+Epoch 49/50
+800/800 - 252s - loss: 0.1284 - accuracy: 0.9490 - val_loss: 0.1301 - val_accuracy: 0.9483 - lr: 1.0439e-08 - 252s/epoch - 315ms/step
+Epoch 50/50
+800/800 - 257s - loss: 0.1280 - accuracy: 0.9491 - val_loss: 0.1303 - val_accuracy: 0.9482 - lr: 6.7857e-09 - 257s/epoch - 321ms/step
+[qtrain] rcnn_d5_p0.010_r3_w4_seed2_ntr10000000  p_L=0.05319  MWPM=0.04510  ratio=1.179x  size=25.17KB  (50ep 12783s 51547p)
+--- w3 seed2 ---
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/train_one_quantized.py --d 5 --p 0.01 --rounds 3 --kernel 3 --seed 2 --n-train 10000000 --n-test 200000 --weight-bits 3 --epochs 50 --batch-size 10000 --hidden 100 --hidden-layers 2 --npol 2 --data-dir /home/kchey/rcnn_threshold/pools --test-pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --out-dir /home/kchey/rcnn_threshold/out_q --no-early-stopping
+2026-07-10 04:49:05.518815: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-10 04:49:05.520287: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-10 04:49:05.523084: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+[qtrain] TF 2.15.1  GPUs: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Epoch 1/50
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783659095.107522   47474 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+800/800 - 418s - loss: 0.3545 - accuracy: 0.8309 - val_loss: 0.2766 - val_accuracy: 0.8753 - lr: 0.0100 - 418s/epoch - 523ms/step
+Epoch 2/50
+800/800 - 250s - loss: 0.2508 - accuracy: 0.8880 - val_loss: 0.2301 - val_accuracy: 0.8981 - lr: 0.0090 - 250s/epoch - 312ms/step
+Epoch 3/50
+800/800 - 250s - loss: 0.2111 - accuracy: 0.9093 - val_loss: 0.1976 - val_accuracy: 0.9190 - lr: 0.0080 - 250s/epoch - 312ms/step
+Epoch 4/50
+800/800 - 250s - loss: 0.2008 - accuracy: 0.9156 - val_loss: 0.1795 - val_accuracy: 0.9258 - lr: 0.0070 - 250s/epoch - 312ms/step
+Epoch 5/50
+800/800 - 250s - loss: 0.2272 - accuracy: 0.9012 - val_loss: 0.1992 - val_accuracy: 0.9146 - lr: 0.0060 - 250s/epoch - 313ms/step
+Epoch 6/50
+800/800 - 250s - loss: 0.1849 - accuracy: 0.9233 - val_loss: 0.1772 - val_accuracy: 0.9275 - lr: 0.0050 - 250s/epoch - 313ms/step
+Epoch 7/50
+800/800 - 249s - loss: 0.1743 - accuracy: 0.9285 - val_loss: 0.1666 - val_accuracy: 0.9320 - lr: 0.0040 - 249s/epoch - 311ms/step
+Epoch 8/50
+800/800 - 250s - loss: 0.1690 - accuracy: 0.9309 - val_loss: 0.1656 - val_accuracy: 0.9324 - lr: 0.0030 - 250s/epoch - 313ms/step
+Epoch 9/50
+800/800 - 250s - loss: 0.1646 - accuracy: 0.9330 - val_loss: 0.1668 - val_accuracy: 0.9321 - lr: 0.0020 - 250s/epoch - 313ms/step
+Epoch 10/50
+800/800 - 250s - loss: 0.1615 - accuracy: 0.9343 - val_loss: 0.1610 - val_accuracy: 0.9341 - lr: 0.0010 - 250s/epoch - 313ms/step
+Epoch 11/50
+800/800 - 250s - loss: 0.1616 - accuracy: 0.9345 - val_loss: 0.1626 - val_accuracy: 0.9341 - lr: 9.0000e-04 - 250s/epoch - 313ms/step
+Epoch 12/50
+800/800 - 248s - loss: 0.1601 - accuracy: 0.9352 - val_loss: 0.1565 - val_accuracy: 0.9371 - lr: 8.1000e-04 - 248s/epoch - 311ms/step
+Epoch 13/50
+800/800 - 250s - loss: 0.1628 - accuracy: 0.9338 - val_loss: 0.1565 - val_accuracy: 0.9369 - lr: 7.2900e-04 - 250s/epoch - 312ms/step
+Epoch 14/50
+800/800 - 251s - loss: 0.1581 - accuracy: 0.9360 - val_loss: 0.1561 - val_accuracy: 0.9366 - lr: 6.5610e-04 - 251s/epoch - 313ms/step
+Epoch 15/50
+800/800 - 253s - loss: 0.1583 - accuracy: 0.9361 - val_loss: 0.1555 - val_accuracy: 0.9375 - lr: 5.9049e-04 - 253s/epoch - 316ms/step
+Epoch 16/50
+800/800 - 251s - loss: 0.1583 - accuracy: 0.9361 - val_loss: 0.1573 - val_accuracy: 0.9364 - lr: 5.3144e-04 - 251s/epoch - 313ms/step
+Epoch 17/50
+800/800 - 250s - loss: 0.1585 - accuracy: 0.9359 - val_loss: 0.1627 - val_accuracy: 0.9334 - lr: 4.7830e-04 - 250s/epoch - 313ms/step
+Epoch 18/50
+800/800 - 251s - loss: 0.1579 - accuracy: 0.9362 - val_loss: 0.1587 - val_accuracy: 0.9357 - lr: 4.3047e-04 - 251s/epoch - 314ms/step
+Epoch 19/50
+800/800 - 248s - loss: 0.1576 - accuracy: 0.9363 - val_loss: 0.1590 - val_accuracy: 0.9373 - lr: 3.8742e-04 - 248s/epoch - 310ms/step
+Epoch 20/50
+800/800 - 251s - loss: 0.1570 - accuracy: 0.9367 - val_loss: 0.1552 - val_accuracy: 0.9373 - lr: 3.4868e-04 - 251s/epoch - 314ms/step
+Epoch 21/50
+800/800 - 251s - loss: 0.1567 - accuracy: 0.9366 - val_loss: 0.1573 - val_accuracy: 0.9357 - lr: 2.7894e-04 - 251s/epoch - 314ms/step
+Epoch 22/50
+800/800 - 252s - loss: 0.1562 - accuracy: 0.9369 - val_loss: 0.1551 - val_accuracy: 0.9373 - lr: 2.2315e-04 - 252s/epoch - 315ms/step
+Epoch 23/50
+800/800 - 249s - loss: 0.1557 - accuracy: 0.9372 - val_loss: 0.1564 - val_accuracy: 0.9367 - lr: 1.7852e-04 - 249s/epoch - 312ms/step
+Epoch 24/50
+800/800 - 250s - loss: 0.1555 - accuracy: 0.9372 - val_loss: 0.1556 - val_accuracy: 0.9372 - lr: 1.4282e-04 - 250s/epoch - 312ms/step
+Epoch 25/50
+800/800 - 250s - loss: 0.1554 - accuracy: 0.9373 - val_loss: 0.1589 - val_accuracy: 0.9356 - lr: 1.1425e-04 - 250s/epoch - 312ms/step
+Epoch 26/50
+800/800 - 250s - loss: 0.1551 - accuracy: 0.9374 - val_loss: 0.1540 - val_accuracy: 0.9380 - lr: 9.1404e-05 - 250s/epoch - 312ms/step
+Epoch 27/50
+800/800 - 250s - loss: 0.1551 - accuracy: 0.9374 - val_loss: 0.1524 - val_accuracy: 0.9382 - lr: 7.3123e-05 - 250s/epoch - 313ms/step
+Epoch 28/50
+800/800 - 251s - loss: 0.1549 - accuracy: 0.9374 - val_loss: 0.1539 - val_accuracy: 0.9377 - lr: 5.8499e-05 - 251s/epoch - 314ms/step
+Epoch 29/50
+800/800 - 260s - loss: 0.1547 - accuracy: 0.9375 - val_loss: 0.1555 - val_accuracy: 0.9378 - lr: 4.6799e-05 - 260s/epoch - 325ms/step
+Epoch 30/50
+800/800 - 250s - loss: 0.1549 - accuracy: 0.9375 - val_loss: 0.1558 - val_accuracy: 0.9369 - lr: 3.7439e-05 - 250s/epoch - 312ms/step
+Epoch 31/50
+800/800 - 250s - loss: 0.1542 - accuracy: 0.9378 - val_loss: 0.1552 - val_accuracy: 0.9377 - lr: 2.4335e-05 - 250s/epoch - 312ms/step
+Epoch 32/50
+800/800 - 254s - loss: 0.1538 - accuracy: 0.9379 - val_loss: 0.1546 - val_accuracy: 0.9374 - lr: 1.5818e-05 - 254s/epoch - 317ms/step
+Epoch 33/50
+800/800 - 253s - loss: 0.1536 - accuracy: 0.9380 - val_loss: 0.1549 - val_accuracy: 0.9379 - lr: 1.0282e-05 - 253s/epoch - 316ms/step
+Epoch 34/50
+800/800 - 248s - loss: 0.1535 - accuracy: 0.9381 - val_loss: 0.1513 - val_accuracy: 0.9391 - lr: 6.6831e-06 - 248s/epoch - 310ms/step
+Epoch 35/50
+800/800 - 251s - loss: 0.1531 - accuracy: 0.9382 - val_loss: 0.1549 - val_accuracy: 0.9377 - lr: 4.3440e-06 - 251s/epoch - 313ms/step
+Epoch 36/50
+800/800 - 251s - loss: 0.1534 - accuracy: 0.9382 - val_loss: 0.1544 - val_accuracy: 0.9378 - lr: 2.8236e-06 - 251s/epoch - 313ms/step
+Epoch 37/50
+800/800 - 251s - loss: 0.1530 - accuracy: 0.9383 - val_loss: 0.1529 - val_accuracy: 0.9387 - lr: 1.8353e-06 - 251s/epoch - 314ms/step
+Epoch 38/50
+800/800 - 249s - loss: 0.1530 - accuracy: 0.9384 - val_loss: 0.1581 - val_accuracy: 0.9365 - lr: 1.1930e-06 - 249s/epoch - 312ms/step
+Epoch 39/50
+800/800 - 252s - loss: 0.1527 - accuracy: 0.9385 - val_loss: 0.1531 - val_accuracy: 0.9384 - lr: 7.7543e-07 - 252s/epoch - 314ms/step
+Epoch 40/50
+800/800 - 253s - loss: 0.1521 - accuracy: 0.9388 - val_loss: 0.1546 - val_accuracy: 0.9377 - lr: 5.0403e-07 - 253s/epoch - 316ms/step
+Epoch 41/50
+800/800 - 252s - loss: 0.1523 - accuracy: 0.9387 - val_loss: 0.1591 - val_accuracy: 0.9375 - lr: 3.2762e-07 - 252s/epoch - 315ms/step
+Epoch 42/50
+800/800 - 252s - loss: 0.1521 - accuracy: 0.9387 - val_loss: 0.1523 - val_accuracy: 0.9387 - lr: 2.1295e-07 - 252s/epoch - 315ms/step
+Epoch 43/50
+800/800 - 250s - loss: 0.1517 - accuracy: 0.9389 - val_loss: 0.1513 - val_accuracy: 0.9389 - lr: 1.3842e-07 - 250s/epoch - 313ms/step
+Epoch 44/50
+800/800 - 250s - loss: 0.1505 - accuracy: 0.9393 - val_loss: 0.1493 - val_accuracy: 0.9396 - lr: 8.9973e-08 - 250s/epoch - 312ms/step
+Epoch 45/50
+800/800 - 253s - loss: 0.1488 - accuracy: 0.9400 - val_loss: 0.1485 - val_accuracy: 0.9400 - lr: 5.8482e-08 - 253s/epoch - 317ms/step
+Epoch 46/50
+800/800 - 250s - loss: 0.1468 - accuracy: 0.9407 - val_loss: 0.1480 - val_accuracy: 0.9403 - lr: 3.8014e-08 - 250s/epoch - 313ms/step
+Epoch 47/50
+800/800 - 252s - loss: 0.1451 - accuracy: 0.9415 - val_loss: 0.1452 - val_accuracy: 0.9414 - lr: 2.4709e-08 - 252s/epoch - 315ms/step
+Epoch 48/50
+800/800 - 250s - loss: 0.1439 - accuracy: 0.9420 - val_loss: 0.1439 - val_accuracy: 0.9420 - lr: 1.6061e-08 - 250s/epoch - 313ms/step
+Epoch 49/50
+800/800 - 250s - loss: 0.1429 - accuracy: 0.9423 - val_loss: 0.1433 - val_accuracy: 0.9421 - lr: 1.0439e-08 - 250s/epoch - 313ms/step
+Epoch 50/50
+800/800 - 248s - loss: 0.1427 - accuracy: 0.9424 - val_loss: 0.1441 - val_accuracy: 0.9417 - lr: 6.7857e-09 - 248s/epoch - 311ms/step
+[qtrain] rcnn_d5_p0.010_r3_w3_seed2_ntr10000000  p_L=0.05923  MWPM=0.04510  ratio=1.313x  size=18.88KB  (50ep 12707s 51547p)
+--- w2 seed2 ---
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/train_one_quantized.py --d 5 --p 0.01 --rounds 3 --kernel 3 --seed 2 --n-train 10000000 --n-test 200000 --weight-bits 2 --epochs 50 --batch-size 10000 --hidden 100 --hidden-layers 2 --npol 2 --data-dir /home/kchey/rcnn_threshold/pools --test-pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --out-dir /home/kchey/rcnn_threshold/out_q --no-early-stopping
+2026-07-10 08:22:02.207640: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-10 08:22:02.209568: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-10 08:22:02.213386: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+[qtrain] TF 2.15.1  GPUs: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Epoch 1/50
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783671877.228111   62518 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+800/800 - 418s - loss: 0.4416 - accuracy: 0.7790 - val_loss: 0.3800 - val_accuracy: 0.8041 - lr: 0.0100 - 418s/epoch - 523ms/step
+Epoch 2/50
+800/800 - 249s - loss: 0.4102 - accuracy: 0.7871 - val_loss: 0.3760 - val_accuracy: 0.8166 - lr: 0.0090 - 249s/epoch - 311ms/step
+Epoch 3/50
+800/800 - 247s - loss: 0.3811 - accuracy: 0.8134 - val_loss: 0.3642 - val_accuracy: 0.8220 - lr: 0.0080 - 247s/epoch - 309ms/step
+Epoch 4/50
+800/800 - 250s - loss: 0.3903 - accuracy: 0.8074 - val_loss: 0.3546 - val_accuracy: 0.8372 - lr: 0.0070 - 250s/epoch - 313ms/step
+Epoch 5/50
+800/800 - 247s - loss: 0.3821 - accuracy: 0.8046 - val_loss: 0.3593 - val_accuracy: 0.8229 - lr: 0.0060 - 247s/epoch - 309ms/step
+Epoch 6/50
+800/800 - 248s - loss: 0.3737 - accuracy: 0.8049 - val_loss: 0.3316 - val_accuracy: 0.8484 - lr: 0.0050 - 248s/epoch - 309ms/step
+Epoch 7/50
+800/800 - 248s - loss: 0.3459 - accuracy: 0.8270 - val_loss: 0.3384 - val_accuracy: 0.8403 - lr: 0.0040 - 248s/epoch - 310ms/step
+Epoch 8/50
+800/800 - 249s - loss: 0.3535 - accuracy: 0.8205 - val_loss: 0.3642 - val_accuracy: 0.8067 - lr: 0.0030 - 249s/epoch - 311ms/step
+Epoch 9/50
+800/800 - 250s - loss: 0.3422 - accuracy: 0.8317 - val_loss: 0.3289 - val_accuracy: 0.8507 - lr: 0.0020 - 250s/epoch - 312ms/step
+Epoch 10/50
+800/800 - 247s - loss: 0.3306 - accuracy: 0.8438 - val_loss: 0.3407 - val_accuracy: 0.8314 - lr: 0.0010 - 247s/epoch - 308ms/step
+Epoch 11/50
+800/800 - 253s - loss: 0.3276 - accuracy: 0.8431 - val_loss: 0.3128 - val_accuracy: 0.8560 - lr: 9.0000e-04 - 253s/epoch - 316ms/step
+Epoch 12/50
+800/800 - 250s - loss: 0.3436 - accuracy: 0.8156 - val_loss: 0.3220 - val_accuracy: 0.8429 - lr: 8.1000e-04 - 250s/epoch - 312ms/step
+Epoch 13/50
+800/800 - 260s - loss: 0.3400 - accuracy: 0.8236 - val_loss: 0.3706 - val_accuracy: 0.7630 - lr: 7.2900e-04 - 260s/epoch - 325ms/step
+Epoch 14/50
+800/800 - 249s - loss: 0.3591 - accuracy: 0.8139 - val_loss: 0.3312 - val_accuracy: 0.8328 - lr: 6.5610e-04 - 249s/epoch - 311ms/step
+Epoch 15/50
+800/800 - 248s - loss: 0.3246 - accuracy: 0.8382 - val_loss: 0.3205 - val_accuracy: 0.8530 - lr: 5.9049e-04 - 248s/epoch - 310ms/step
+Epoch 16/50
+800/800 - 248s - loss: 0.3366 - accuracy: 0.8213 - val_loss: 0.3205 - val_accuracy: 0.8544 - lr: 5.3144e-04 - 248s/epoch - 310ms/step
+Epoch 17/50
+800/800 - 246s - loss: 0.3335 - accuracy: 0.8294 - val_loss: 0.3118 - val_accuracy: 0.8497 - lr: 4.7830e-04 - 246s/epoch - 308ms/step
+Epoch 18/50
+800/800 - 259s - loss: 0.3188 - accuracy: 0.8442 - val_loss: 0.3276 - val_accuracy: 0.8327 - lr: 4.3047e-04 - 259s/epoch - 323ms/step
+Epoch 19/50
+800/800 - 250s - loss: 0.3231 - accuracy: 0.8413 - val_loss: 0.3220 - val_accuracy: 0.8540 - lr: 3.8742e-04 - 250s/epoch - 312ms/step
+Epoch 20/50
+800/800 - 247s - loss: 0.3437 - accuracy: 0.8031 - val_loss: 0.3174 - val_accuracy: 0.8284 - lr: 3.4868e-04 - 247s/epoch - 309ms/step
+Epoch 21/50
+800/800 - 250s - loss: 0.3139 - accuracy: 0.8507 - val_loss: 0.3310 - val_accuracy: 0.8544 - lr: 2.7894e-04 - 250s/epoch - 312ms/step
+Epoch 22/50
+800/800 - 250s - loss: 0.3133 - accuracy: 0.8519 - val_loss: 0.3066 - val_accuracy: 0.8537 - lr: 2.2315e-04 - 250s/epoch - 312ms/step
+Epoch 23/50
+800/800 - 249s - loss: 0.3127 - accuracy: 0.8513 - val_loss: 0.3023 - val_accuracy: 0.8596 - lr: 1.7852e-04 - 249s/epoch - 311ms/step
+Epoch 24/50
+800/800 - 249s - loss: 0.3111 - accuracy: 0.8525 - val_loss: 0.3426 - val_accuracy: 0.7971 - lr: 1.4282e-04 - 249s/epoch - 312ms/step
+Epoch 25/50
+800/800 - 248s - loss: 0.3099 - accuracy: 0.8523 - val_loss: 0.3066 - val_accuracy: 0.8564 - lr: 1.1425e-04 - 248s/epoch - 310ms/step
+Epoch 26/50
+800/800 - 249s - loss: 0.3100 - accuracy: 0.8522 - val_loss: 0.3097 - val_accuracy: 0.8486 - lr: 9.1404e-05 - 249s/epoch - 312ms/step
+Epoch 27/50
+800/800 - 251s - loss: 0.3095 - accuracy: 0.8524 - val_loss: 0.3518 - val_accuracy: 0.7810 - lr: 7.3123e-05 - 251s/epoch - 313ms/step
+Epoch 28/50
+800/800 - 250s - loss: 0.3088 - accuracy: 0.8527 - val_loss: 0.3016 - val_accuracy: 0.8600 - lr: 5.8499e-05 - 250s/epoch - 312ms/step
+Epoch 29/50
+800/800 - 252s - loss: 0.3079 - accuracy: 0.8529 - val_loss: 0.3070 - val_accuracy: 0.8608 - lr: 4.6799e-05 - 252s/epoch - 315ms/step
+Epoch 30/50
+800/800 - 248s - loss: 0.3045 - accuracy: 0.8552 - val_loss: 0.2988 - val_accuracy: 0.8616 - lr: 3.7439e-05 - 248s/epoch - 310ms/step
+Epoch 31/50
+800/800 - 249s - loss: 0.3048 - accuracy: 0.8553 - val_loss: 0.3183 - val_accuracy: 0.8436 - lr: 2.4335e-05 - 249s/epoch - 311ms/step
+Epoch 32/50
+800/800 - 250s - loss: 0.3046 - accuracy: 0.8551 - val_loss: 0.3113 - val_accuracy: 0.8590 - lr: 1.5818e-05 - 250s/epoch - 312ms/step
+Epoch 33/50
+800/800 - 261s - loss: 0.3046 - accuracy: 0.8554 - val_loss: 0.2970 - val_accuracy: 0.8630 - lr: 1.0282e-05 - 261s/epoch - 326ms/step
+Epoch 34/50
+800/800 - 285s - loss: 0.3045 - accuracy: 0.8550 - val_loss: 0.3057 - val_accuracy: 0.8495 - lr: 6.6831e-06 - 285s/epoch - 356ms/step
+Epoch 35/50
+800/800 - 284s - loss: 0.3051 - accuracy: 0.8546 - val_loss: 0.3035 - val_accuracy: 0.8557 - lr: 4.3440e-06 - 284s/epoch - 355ms/step
+Epoch 36/50
+800/800 - 281s - loss: 0.3048 - accuracy: 0.8551 - val_loss: 0.3059 - val_accuracy: 0.8606 - lr: 2.8236e-06 - 281s/epoch - 351ms/step
+Epoch 37/50
+800/800 - 279s - loss: 0.3062 - accuracy: 0.8544 - val_loss: 0.3006 - val_accuracy: 0.8603 - lr: 1.8353e-06 - 279s/epoch - 349ms/step
+Epoch 38/50
+800/800 - 282s - loss: 0.3034 - accuracy: 0.8558 - val_loss: 0.2974 - val_accuracy: 0.8601 - lr: 1.1930e-06 - 282s/epoch - 353ms/step
+Epoch 39/50
+800/800 - 284s - loss: 0.3045 - accuracy: 0.8550 - val_loss: 0.3007 - val_accuracy: 0.8619 - lr: 7.7543e-07 - 284s/epoch - 355ms/step
+Epoch 40/50
+800/800 - 286s - loss: 0.3045 - accuracy: 0.8552 - val_loss: 0.3000 - val_accuracy: 0.8605 - lr: 5.0403e-07 - 286s/epoch - 357ms/step
+Epoch 41/50
+800/800 - 291s - loss: 0.3042 - accuracy: 0.8554 - val_loss: 0.3200 - val_accuracy: 0.8496 - lr: 3.2762e-07 - 291s/epoch - 364ms/step
+Epoch 42/50
+800/800 - 301s - loss: 0.3026 - accuracy: 0.8564 - val_loss: 0.2979 - val_accuracy: 0.8603 - lr: 2.1295e-07 - 301s/epoch - 376ms/step
+Epoch 43/50
+800/800 - 297s - loss: 0.3017 - accuracy: 0.8574 - val_loss: 0.2967 - val_accuracy: 0.8592 - lr: 1.3842e-07 - 297s/epoch - 371ms/step
+Epoch 44/50
+800/800 - 301s - loss: 0.3006 - accuracy: 0.8576 - val_loss: 0.2998 - val_accuracy: 0.8567 - lr: 8.9973e-08 - 301s/epoch - 376ms/step
+Epoch 45/50
+800/800 - 299s - loss: 0.2965 - accuracy: 0.8600 - val_loss: 0.2926 - val_accuracy: 0.8652 - lr: 5.8482e-08 - 299s/epoch - 374ms/step
+Epoch 46/50
+800/800 - 300s - loss: 0.2937 - accuracy: 0.8623 - val_loss: 0.2933 - val_accuracy: 0.8618 - lr: 3.8014e-08 - 300s/epoch - 375ms/step
+Epoch 47/50
+800/800 - 301s - loss: 0.2923 - accuracy: 0.8633 - val_loss: 0.2911 - val_accuracy: 0.8634 - lr: 2.4709e-08 - 301s/epoch - 376ms/step
+Epoch 48/50
+800/800 - 302s - loss: 0.2921 - accuracy: 0.8634 - val_loss: 0.2943 - val_accuracy: 0.8597 - lr: 1.6061e-08 - 302s/epoch - 378ms/step
+Epoch 49/50
+800/800 - 304s - loss: 0.2912 - accuracy: 0.8633 - val_loss: 0.2919 - val_accuracy: 0.8613 - lr: 1.0439e-08 - 304s/epoch - 380ms/step
+Epoch 50/50
+800/800 - 304s - loss: 0.2920 - accuracy: 0.8613 - val_loss: 0.2919 - val_accuracy: 0.8613 - lr: 6.7857e-09 - 304s/epoch - 380ms/step
+[qtrain] rcnn_d5_p0.010_r3_w2_seed2_ntr10000000  p_L=0.13970  MWPM=0.04510  ratio=3.098x  size=12.58KB  (50ep 13412s 51547p)
+=== SWEEP DONE. collate: /home/kchey/QuantumDecoderQKeras/.venv/bin/python collate_pareto.py --out-dir /home/kchey/rcnn_threshold/out_q ===

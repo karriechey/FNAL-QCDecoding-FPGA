@@ -1,0 +1,37 @@
+nohup: ignoring input
+[ladder] === START d5_p0.010_r3_seed0_ntr100000 22:30:26 ===
+[ladder] === DONE  d5_p0.010_r3_seed0_ntr100000 22:36:18 ===
+[ladder] === START d5_p0.010_r3_seed1_ntr100000 22:36:18 ===
+[ladder] === DONE  d5_p0.010_r3_seed1_ntr100000 22:41:45 ===
+[ladder] === START d5_p0.010_r3_seed2_ntr100000 22:41:45 ===
+[ladder] === DONE  d5_p0.010_r3_seed2_ntr100000 22:47:21 ===
+[ladder] === START d5_p0.010_r3_seed0_ntr300000 22:47:21 ===
+[ladder] === DONE  d5_p0.010_r3_seed0_ntr300000 22:57:18 ===
+[ladder] === START d5_p0.010_r3_seed1_ntr300000 22:57:18 ===
+[ladder] === DONE  d5_p0.010_r3_seed1_ntr300000 23:07:23 ===
+[ladder] === START d5_p0.010_r3_seed2_ntr300000 23:07:23 ===
+[ladder] === DONE  d5_p0.010_r3_seed2_ntr300000 23:17:29 ===
+[ladder] skip d5_p0.010_r3_seed0_ntr800000 (csv exists)
+[ladder] === START d5_p0.010_r3_seed1_ntr800000 23:17:30 ===
+[ladder] === DONE  d5_p0.010_r3_seed1_ntr800000 23:38:21 ===
+[ladder] === START d5_p0.010_r3_seed2_ntr800000 23:38:21 ===
+[ladder] === DONE  d5_p0.010_r3_seed2_ntr800000 23:59:11 ===
+[ladder] === START d5_p0.010_r3_seed0_ntr2000000 23:59:11 ===
+[ladder] === DONE  d5_p0.010_r3_seed0_ntr2000000 00:48:07 ===
+[ladder] === START d5_p0.010_r3_seed1_ntr2000000 00:48:07 ===
+[ladder] === DONE  d5_p0.010_r3_seed1_ntr2000000 01:38:42 ===
+[ladder] === START d5_p0.010_r3_seed2_ntr2000000 01:38:42 ===
+[ladder] === DONE  d5_p0.010_r3_seed2_ntr2000000 02:25:16 ===
+[ladder] === START d5_p0.010_r3_seed0_ntr5000000 02:25:16 ===
+[ladder] === DONE  d5_p0.010_r3_seed0_ntr5000000 04:19:12 ===
+[ladder] === START d5_p0.010_r3_seed1_ntr5000000 04:19:12 ===
+[ladder] === DONE  d5_p0.010_r3_seed1_ntr5000000 06:10:38 ===
+[ladder] === START d5_p0.010_r3_seed2_ntr5000000 06:10:38 ===
+[ladder] === DONE  d5_p0.010_r3_seed2_ntr5000000 08:01:32 ===
+[ladder] === START d5_p0.010_r3_seed0_ntr10000000 08:01:32 ===
+[ladder] === DONE  d5_p0.010_r3_seed0_ntr10000000 11:39:41 ===
+[ladder] === START d5_p0.010_r3_seed1_ntr10000000 11:39:41 ===
+[ladder] === DONE  d5_p0.010_r3_seed1_ntr10000000 15:16:55 ===
+[ladder] === START d5_p0.010_r3_seed2_ntr10000000 15:16:55 ===
+[ladder] === DONE  d5_p0.010_r3_seed2_ntr10000000 19:07:19 ===
+[ladder] ALL DONE
