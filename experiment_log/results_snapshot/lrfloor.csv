@@ -1,0 +1,6 @@
+architecture,d,p,rounds,kernel,seed,n_train,n_test,epochs,epochs_ran,batch_size,n_params,p_L,mwpm_p_L,best_val_loss,train_time_s,host,tf_version
+FullRCNNModel,5,0.01,3,3,0,800000,200000,50,50,10000,51547,0.083095,0.04835,0.19582,1908.2,Darwin-arm64,2.15.1
+FullRCNNModel,5,0.01,3,3,1,800000,200000,50,50,10000,51547,0.06807,0.04835,0.16698,2068.3,Darwin-arm64,2.15.1
+FullRCNNModel,5,0.01,3,3,2,800000,200000,50,50,10000,51547,0.08114,0.04835,0.19229,2117.4,Darwin-arm64,2.15.1
+FullRCNNModel,5,0.01,3,3,3,800000,200000,50,50,10000,51547,0.0801,0.04835,0.19261,2120.8,Darwin-arm64,2.15.1
+FullRCNNModel,5,0.01,3,3,4,800000,200000,50,50,10000,51547,0.06317,0.04835,0.15747,2152.7,Darwin-arm64,2.15.1

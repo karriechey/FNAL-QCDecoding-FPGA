@@ -1,0 +1,105 @@
+nohup: ignoring input
+=== QAT PARETO SWEEP  bits=[8, 6, 4, 3, 2] seeds=[0, 1, 2]  n_train=10,000,000 n_test=200,000 ===
+--- FP32 anchor (eval existing 10M weights, no retrain) ---
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/eval_on_tail.py --weights /home/kchey/rcnn_threshold/out_t200k_w/rcnn_d5_p0.010_r3_seed0_ntr10000000.weights.h5 --d 5 --p 0.01 --rounds 3 --n-test 200000 --kernel 3 --hidden 100 --hidden-layers 2 --npol 2 --pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --mcnemar --out-csv /home/kchey/rcnn_threshold/out_q/fp32_anchor.csv
+2026-07-09 18:35:27.138071: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-09 18:35:27.138188: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-09 18:35:27.146463: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+[eval] rcnn_d5_p0.010_r3_seed0_ntr10000000.weights.h5  n_test=200,000  RCNN p_L=0.04553  MWPM=0.04510  gap=+0.00043  ratio=1.010x  base_rate=0.283
+[mcnemar] 2x2 on 200,000 shared shots:
+[mcnemar]   both-right = 187,186
+[mcnemar]   RCNN-only  = 3,708   (RCNN wins these)
+[mcnemar]   MWPM-only  = 2,933   (MWPM wins these)
+[mcnemar]   both-wrong = 6,173
+[mcnemar]   net RCNN wins = +775  (= n_test x (p_L_MWPM - p_L_RCNN) = +775)
+[mcnemar]   McNemar chi2(cc)=90.2  p_chi2=2.14e-21  p_exact=1.93e-21  (MWPM p_L on this tail = 0.04940)
+[eval] appended -> /home/kchey/rcnn_threshold/out_q/fp32_anchor.csv
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/eval_on_tail.py --weights /home/kchey/rcnn_threshold/out_t200k_w/rcnn_d5_p0.010_r3_seed1_ntr10000000.weights.h5 --d 5 --p 0.01 --rounds 3 --n-test 200000 --kernel 3 --hidden 100 --hidden-layers 2 --npol 2 --pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --mcnemar --out-csv /home/kchey/rcnn_threshold/out_q/fp32_anchor.csv
+2026-07-09 18:36:10.316830: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-09 18:36:10.316950: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-09 18:36:10.318820: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+[eval] rcnn_d5_p0.010_r3_seed1_ntr10000000.weights.h5  n_test=200,000  RCNN p_L=0.04639  MWPM=0.04510  gap=+0.00129  ratio=1.029x  base_rate=0.283
+[mcnemar] 2x2 on 200,000 shared shots:
+[mcnemar]   both-right = 187,097
+[mcnemar]   RCNN-only  = 3,624   (RCNN wins these)
+[mcnemar]   MWPM-only  = 3,022   (MWPM wins these)
+[mcnemar]   both-wrong = 6,257
+[mcnemar]   net RCNN wins = +602  (= n_test x (p_L_MWPM - p_L_RCNN) = +602)
+[mcnemar]   McNemar chi2(cc)=54.3  p_chi2=1.68e-13  p_exact=1.62e-13  (MWPM p_L on this tail = 0.04940)
+[eval] appended -> /home/kchey/rcnn_threshold/out_q/fp32_anchor.csv
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/eval_on_tail.py --weights /home/kchey/rcnn_threshold/out_t200k_w/rcnn_d5_p0.010_r3_seed2_ntr10000000.weights.h5 --d 5 --p 0.01 --rounds 3 --n-test 200000 --kernel 3 --hidden 100 --hidden-layers 2 --npol 2 --pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --mcnemar --out-csv /home/kchey/rcnn_threshold/out_q/fp32_anchor.csv
+2026-07-09 18:36:44.258372: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-09 18:36:44.258482: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-09 18:36:44.260538: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+[eval] rcnn_d5_p0.010_r3_seed2_ntr10000000.weights.h5  n_test=200,000  RCNN p_L=0.04651  MWPM=0.04510  gap=+0.00141  ratio=1.031x  base_rate=0.283
+[mcnemar] 2x2 on 200,000 shared shots:
+[mcnemar]   both-right = 187,064
+[mcnemar]   RCNN-only  = 3,634   (RCNN wins these)
+[mcnemar]   MWPM-only  = 3,055   (MWPM wins these)
+[mcnemar]   both-wrong = 6,247
+[mcnemar]   net RCNN wins = +579  (= n_test x (p_L_MWPM - p_L_RCNN) = +579)
+[mcnemar]   McNemar chi2(cc)=49.9  p_chi2=1.58e-12  p_exact=1.53e-12  (MWPM p_L on this tail = 0.04940)
+[eval] appended -> /home/kchey/rcnn_threshold/out_q/fp32_anchor.csv
+--- w8 seed0 ---
+  > /home/kchey/QuantumDecoderQKeras/.venv/bin/python /home/kchey/QuantumDecoderQKeras/train_one_quantized.py --d 5 --p 0.01 --rounds 3 --kernel 3 --seed 0 --n-train 10000000 --n-test 200000 --weight-bits 8 --epochs 50 --batch-size 10000 --hidden 100 --hidden-layers 2 --npol 2 --data-dir /home/kchey/rcnn_threshold/pools --test-pool /home/kchey/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz --out-dir /home/kchey/rcnn_threshold/out_q --no-early-stopping
+2026-07-09 18:37:21.214756: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-07-09 18:37:21.214887: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-07-09 18:37:21.216731: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+[qtrain] TF 2.15.1  GPUs: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Number of unique contributions: 13
+Total number of fractions: 28
+Total number of phases: 62
+Total number of inverters: 0
+Epoch 1/50
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783622360.291792    5646 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+800/800 - 335s - loss: 0.2925 - accuracy: 0.8649 - val_loss: 0.1714 - val_accuracy: 0.9288 - lr: 0.0100 - 335s/epoch - 418ms/step
+Epoch 2/50
+800/800 - 195s - loss: 0.1563 - accuracy: 0.9359 - val_loss: 0.1457 - val_accuracy: 0.9409 - lr: 0.0090 - 195s/epoch - 244ms/step
+Epoch 3/50
+800/800 - 197s - loss: 0.1412 - accuracy: 0.9432 - val_loss: 0.1389 - val_accuracy: 0.9442 - lr: 0.0080 - 197s/epoch - 246ms/step
+Epoch 4/50

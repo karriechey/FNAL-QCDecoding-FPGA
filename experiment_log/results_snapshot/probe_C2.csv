@@ -1,0 +1,2 @@
+architecture,d,p,rounds,kernel,seed,n_train,n_test,epochs,epochs_ran,batch_size,n_params,p_L,mwpm_p_L,best_val_loss,train_time_s,host,tf_version
+FullRCNNModel,5,0.01,3,3,0,800000,200000,2,2,10000,51547,0.161255,0.04835,0.34703,104.0,Darwin-arm64,2.15.1
