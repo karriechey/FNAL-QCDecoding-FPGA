@@ -1,7 +1,7 @@
 # QAT weight/activation quantization — RUN LOG
 
 *Created: 2026-07-13 | Last modified: 2026-07-15*
-*Last verified against code: 3a6fd67, 2026-07-15*
+*Last verified against code: f8ffb40, 2026-07-15*
 
 Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml handoff,
 collaborator Giuseppe). One row per run: date, git SHA, command, host, result line.
@@ -115,9 +115,17 @@ frac(lam<0)>=frac(nonpos) holds (n=2 fp-dust needs 1e-3 tol).
 output has frac@B6<0, I(max) up to 17 (correlator #2 seed1: max 1.2e5). No ap_fixed at sane B.
 -> log-domain (Phase 4). x-like I moves wildly across seeds (irrelevant, un-quantizable).
 
-**Phase-2 bounded quantizer config (seed-stable to +-1, take max across seeds):**
-z-like I=4 (post-clip), decoder relu I=5-6, DetectorEvent embedder I=2-3, DetectorBit I=1,
-Triplet/sigmoid I=0. relRMSE@B6 mostly 2-8% (I from p99.9 halves the worst).
+**Phase-2 bounded quantizer config (fixed_point_format_table, collate_profile.py section 4;
+seed-stable under max-across-seeds):** DetectorBit embedder cphi/alpha I=1 (A, holds);
+combiners z-like I=4 (A); Triplet embedder + decoder sigmoid p/f I=0 (A); dec_in z-like I=4 (A);
+decoder relu dec_layer0 I=4 / dec_layer1 I=5 (P, profiled). relRMSE@B6 mostly 2-8%.
+
+**SECOND analytic-bound violation (after +-24), found by profiling:** all 15
+DetectorEventStateEmbedder OUTPUTS exceed the cphi/alpha taxonomy bound -- observed-max I=2-3
+(range ~+-4 to +-8), not I=1. DetectorBit embedder output DOES stay I=1. So the two embedders
+are NOT the same variable class: DetectorBit output is tanh-bounded (-1,1), DetectorEvent output
+is wider. Format table uses profiled I=2 (prov=P!) for those -> no clipping. Reportable: the
+writeup taxonomy's "embedder -> cphi/alpha I=1" is wrong for the event embedder.
 
 **Accumulator finding (Phase-4 HLS, NOT Phase-2):** zlike_preclip absmax = 43.5 / 41.1 / 72
 across seeds -- the z_e+z_m and correlator pre-clip accumulators EXCEED the assumed +-24;

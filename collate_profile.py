@@ -109,10 +109,16 @@ def main():
         print(f'  of the BOUNDED (frac@B6>=0) config sites: {len(bmoved)} move '
               f'(by at most +-{max((max(Is)-min(Is) for _, Is in bmoved), default=0)} bit)')
 
+    def _sortkey(k):   # deterministic: (class-name, instance-index or -1) -- paper row order must be stable
+        cls = k.split('#')[0]
+        idx = -1
+        if '#' in k:
+            try: idx = int(k.split('#')[1].split('_')[0])
+            except ValueError: idx = -1
+        return (cls, idx)
     def out_sites(pred):
         return sorted({k for s in sk for k, v in seeds[s].items()
-                       if isinstance(v, dict) and 'implied_I_from_max' in v and pred(k)},
-                      key=lambda k: (k.split('#')[0], int(k.split('#')[1].split('_')[0]) if '#' in k else 0))
+                       if isinstance(v, dict) and 'implied_I_from_max' in v and pred(k)}, key=_sortkey)
     def field(k, s, f):
         return seeds[s].get(k, {}).get(f)
 
@@ -134,6 +140,7 @@ def main():
     # A = analytic bound; P = profiled (I from p99.9, MAX across seeds). Where analytic disagrees
     # with the profile (analytic too small), we FLAG and use the conservative profiled I.
     def classify(k):   # -> (type, signed, analytic_I or None)
+        if 'preclip' in k:                             return (None, None, None)  # pre-clip INPUT, not a quantizer site
         if k == 'dec_in':                              return ('z-like', True, 4)
         if k.startswith('dec_layer') and 'relu' in k:  return ('relu', False, None)   # profiled
         if k.startswith('dec_layer') and 'sigmoid' in k: return ('p/f', False, 0)
@@ -142,28 +149,51 @@ def main():
         if 'Combiner#' in k and k.endswith('_out'):    return ('z-like', True, 4)      # post-log z''
         return (None, None, None)                      # x-like / other -> not a config row
     cfg = out_sites(lambda k: classify(k)[0] is not None)
+    # Fix 1 -- COMPLETENESS: every bounded (frac@B6>=0) tensor must be either a config row or x-like.
+    # A config-eligible tensor that classify() drops to None would silently vanish from the table
+    # that configures the quantizer. Crash instead.
+    B = 6
+    bounded = {k for s in sk for k, v in seeds[s].items()
+               if isinstance(v, dict) and v.get('implied_frac_at_B6', -9) >= 0 and 'preclip' not in k}
+    def is_xlike(k):
+        return ('CNNKernelWithEmbedding#' in k or 'CNNStateCorrelator#' in k) and k.endswith('_out')
+    unclassified = [k for k in bounded if classify(k)[0] is None and not is_xlike(k)]
+    if unclassified:
+        raise SystemExit(f'format table INCOMPLETE -- bounded sites classify as None (add to classify()): '
+                         f'{sorted(unclassified)}')
+
     print('\n=== (4) fixed_point_format_table (LaTeX) -- FINAL config (configures ActQuant._int_bits) ===')
     print('% tensor & type & signed & I & prov & frac@B6 & relRMSE@B6')
     print('\\begin{tabular}{llccclr}\\hline tensor & type & sgn & $I$ & prov & frac@$B{=}6$ & relRMSE@$B{=}6$ \\\\\\hline')
     flags = []
     for k in cfg:
         typ, signed, aI = classify(k)
-        pI = max(field(k, s, 'implied_I_from_p99_9') or 0 for s in sk)   # profiled, conservative
+        pI = max(field(k, s, 'implied_I_from_p99_9') or 0 for s in sk)   # profiled at p99.9 (policy)
+        mI = max(field(k, s, 'implied_I_from_max') or 0 for s in sk)     # observed MAX across seeds
         if aI is None:                       # relu/logit: always profiled
             I, prov = pI, 'P'
-        elif aI >= pI:                       # analytic bound covers the data
+        elif aI >= pI:                       # analytic covers the p99.9 bulk -> use analytic
             I, prov = aI, 'A'
-        else:                                # analytic assumption VIOLATED by data -> use profiled
-            I, prov = pI, 'P!'; flags.append((k, typ, aI, pI))
-        frac = 6 - I - int(signed)
+        else:                                # analytic fails even at p99.9 -> profiled (hard)
+            I, prov = pI, 'P!'
+        # Fix 2 -- flag when the analytic CLASS bound is exceeded by the OBSERVED MAX (real values
+        # clipped, not just the p99.9 tail). This is a paper claim, checked not assumed (cf. the ±24
+        # bound that was already wrong). Separate from the format choice above.
+        if aI is not None and aI < mI:
+            flags.append((k, typ, aI, pI, mI, prov))
+        # Fix 3 -- guard: I in [0,B], frac non-negative (I==B => frac 0 is legit; frac<0 must crash)
+        frac = B - I - int(signed)
+        assert 0 <= I <= B, f'{k}: I={I} out of [0,{B}]'
+        assert frac >= 0, f'{k}: frac={frac} < 0 (I={I}, signed={signed}) -- B={B} too small for this site'
         rr = max((field(k, s, 'rel_rmse_at_B6_Ip999') or 0) for s in sk)
         print(f'{k.replace("_out","").replace("#","\\#")} & {typ} & {"S" if signed else "U"} & {I} & {prov} '
               f'& {frac} & {rr:.1%} \\\\')
     print('\\hline\\end{tabular}')
+    print(f'  [completeness OK: all {len(bounded)} bounded sites are config rows or x-like]')
     if flags:
-        print('\n  ANALYTIC-BOUND VIOLATIONS (writeup taxonomy too small; profiled I used):')
-        for k, typ, aI, pI in flags:
-            print(f'    {k}: type {typ} expects I={aI}, profiled I={pI} across seeds -> use {pI}')
+        print('\n  ANALYTIC-BOUND VIOLATIONS (class bound < observed max -> real values clipped; paper claim):')
+        for k, typ, aI, pI, mI, prov in flags:
+            print(f'    {k}: type {typ} analytic I={aI} < observed-max I={mI} (p99.9 I={pI}); format uses prov={prov}')
 
 
 if __name__ == '__main__':
