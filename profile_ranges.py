@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Phase 3 (READ): per-tensor range profiling for the activation-quant design (Table 3).
+# Created: 2026-07-13 | Last updated: 2026-07-15
+"""Phase 3 (READ): per-tensor range profiling for the activation-quant design.
 
-This JSON is what Table 3 (per-layer ap_fixed<B,I>) is built from, so every number is
-PER LAYER-INSTANCE / PER CLIP-SITE-x-INSTANCE, not aggregated across the network.
+This JSON is what the fixed_point_format_table (per-tensor ap_fixed<B,I> that configures
+ActQuant._int_bits and goes in quantization.tex) is built from, so every number is PER
+LAYER-INSTANCE / PER CLIP-SITE-x-INSTANCE, not aggregated across the network.
 
 WHAT IS MEASURED
   * Layer OUTPUTS: every custom-layer instance's output, by WRAPPING its .call
@@ -26,7 +28,7 @@ unsigned; sigmoid -> unsigned; else inferred from data and LABELED). An unsigned
 site that goes negative is a TYPE_VIOLATION (flagged), not silently absorbed.
 
 Run PER SEED (weights filename carries seedN -> output profile_ranges_w{B}_seed{N}.json).
-If implied_I moves across seeds, that's a Table 3 caveat.
+If implied_I moves across seeds, that's a fixed_point_format_table caveat.
 
   .venv/bin/python profile_ranges.py --weights <w6 seedN .weights.h5> [--expect-pl 0.046675]
 """
@@ -60,7 +62,7 @@ def _acc(site, arr, clip=None, vclass=None):
     if clip is not None:
         lo, hi = clip
         s['clip'] = (lo, hi)
-        if lo > 0:   # exp/combination clip: non-positive is a FINDING (ln undefined -> signed LSE)
+        if lo > 0:   # exp/combination clip: non-positive is a FINDING (ln undefined -> log-domain
             nonpos = a <= 0
             s['n_nonpos'] = s.get('n_nonpos', 0) + int(nonpos.sum())
             s['n_clip'] += int(((a < lo) & ~nonpos).sum()) + int((a > hi).sum())
@@ -113,6 +115,9 @@ def _finalize(site):
         d['frac_clipped'] = s['n_clip'] / max(s['n'], 1)
         if 'n_nonpos' in s:
             d['frac_nonpositive'] = s['n_nonpos'] / max(s['n'], 1)
+    # STATIC post-training quant error (round-to-fixed on the captured tensor). Predicts WHERE the
+    # sweep will hurt; whether QAT recovers the p99.9-clipping loss is UNMEASURED until Phase 2 runs
+    # -- do not state recovery as fact anywhere from this number.
     denom = float(np.std(vals)) + 1e-12
     I_p999 = _int_bits(p99_9)
 
@@ -391,6 +396,11 @@ def run():
                            'sites with no self fall back to #agg (labeled)',
         combination_note='combination_preclip is the phase-weighted quadratic form into log() (signed, '
                          'can be <=0), NOT a bare exponential',
+        lambda_measured_for='CNNStateCorrelator ONLY. The RCNNKernelCombiner outer sum (Eq 3.1) has '
+                            'the SAME quadratic-form structure with N up to 5 and is NOT eigen-measured '
+                            'here -- its combination_preclip@:227 non-positivity IS recorded (e.g. seed0 '
+                            'LeadIn min -0.0996, rate <0.005%), but lambda_min(C) for the combiner is a '
+                            'gap. The lambda measurement is therefore NOT complete over the network.',
         NOT_a_phase2_qat_site=[
             'CNNStateCorrelator reverse_arg_sum (:1831) / cpwgt_arg_sum (:1856): bare tf.matmul '
             'accumulators into tanh (no Dense to wrap). Phase 2 quantizes the tanh OUTPUT '
@@ -427,7 +437,7 @@ def run():
 
     def _fz(x):
         return 'n/a' if x is None else f'{x:.2f}'
-    print('\n=== READ FIRST (a): combination_preclip (signed LSE?  x-span decides rewrite) ===')
+    print('\n=== READ FIRST (a): combination_preclip (non-positivity + x-span; rewrite remedy = Phase 4) ===')
     for s, v in comb.items():
         print(f'  {s}: val∈[{v["min"]:.3g},{v["max"]:.3g}]  eff z∈[{_fz(v["eff_z_min"])},{_fz(v["eff_z_max"])}]  '
               f'frac_NONPOS={v.get("frac_nonpositive",0):.2%}  frac_clipped={v.get("frac_clipped",0):.2%}')
