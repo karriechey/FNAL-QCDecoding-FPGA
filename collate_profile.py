@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Created: 2026-07-14 | Last updated: 2026-07-15
+# Created: 2026-07-14
+# Last modified: 2026-07-15
 """Collate the per-seed profile_ranges JSONs into the tables the paper section needs:
 
   (1) n-vs-nonpositivity: per CNNStateCorrelator instance, measured n vs lambda_min(C)<0

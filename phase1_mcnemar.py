@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Created: 2026-07-13 | Last updated: 2026-07-15
+# Created: 2026-07-13
+# Last modified: 2026-07-15
 """Phase 1: referee-proof knee. Paired McNemar at the two smallest lossless-ish
 bit-widths (6, 8) vs MWPM on the SAME fresh disjoint 200k tail as the Pareto.
 

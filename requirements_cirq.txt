@@ -1,0 +1,7 @@
+cirq
+ipython
+jupyter<=1.0.0
+matplotlib
+numpy
+scikit-learn
+scipy
