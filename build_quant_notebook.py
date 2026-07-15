@@ -27,7 +27,7 @@ tensors). `CNNModel.py` stays byte-for-byte pristine; all quantization lives in
 `CNNModel_quantized.py`.
 
 This notebook is **live**: cells load the result files from disk and rebuild every number,
-so it stays honest. The authoritative ledger is `RUN_LOG.md`; this is the runnable view.
+so it stays honest. The authoritative ledger is `docs/RUN_LOG.md`; this is the runnable view.
 
 > Run on EAF (`.venv/bin/python` kernel) where `~/rcnn_threshold/` lives."""))
 
@@ -187,18 +187,18 @@ cd ~/QuantumDecoderQKeras
 
 cells.append(md("""## Provenance & status
 
-- **Ledger:** `RUN_LOG.md` (fixed substrate + every phase + git SHAs).
+- **Ledger:** `docs/RUN_LOG.md` (fixed substrate + every phase + git SHAs).
 - **Branch:** `quantization-pareto` (local only — not pushed; RCNN repo reorg pending).
 - **Files:** `CNNModel_quantized.py`, `train_one_quantized.py`, `sweep_quantized.py`,
   `collate_pareto.py`, `make_fresh_tail.py`, `eval_on_tail.py`, `phase1_mcnemar.py`,
-  `profile_ranges.py`, `RUN_LOG.md`, this notebook + `build_quant_notebook.py`.
+  `profile_ranges.py`, `docs/RUN_LOG.md`, this notebook + `build_quant_notebook.py`.
 
 **Open:** run Phase 3 on 3 seeds → read design → implement `ActQuant` + Phase 2 sweep."""))
 
 cells.append(code("""# git provenance for this work (run on the machine with the repo)
 # !git log --oneline -20 -- CNNModel_quantized.py train_one_quantized.py sweep_quantized.py \\
 #     collate_pareto.py make_fresh_tail.py eval_on_tail.py phase1_mcnemar.py profile_ranges.py
-print('see RUN_LOG.md and: git log --oneline quantization-pareto')"""))
+print('see docs/RUN_LOG.md and: git log --oneline quantization-pareto')"""))
 
 nb = {"cells": cells, "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python",
       "name": "python3"}, "language_info": {"name": "python"}}, "nbformat": 4, "nbformat_minor": 5}
