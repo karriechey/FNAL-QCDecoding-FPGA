@@ -1,7 +1,7 @@
 # QAT weight/activation quantization — RUN LOG
 
 *Created: 2026-07-13 | Last modified: 2026-07-15*
-*Last verified against code: f8ffb40, 2026-07-15*
+*Last verified against code: cc8a7f2, 2026-07-15*
 
 Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml handoff,
 collaborator Giuseppe). One row per run: date, git SHA, command, host, result line.
@@ -120,12 +120,13 @@ seed-stable under max-across-seeds):** DetectorBit embedder cphi/alpha I=1 (A, h
 combiners z-like I=4 (A); Triplet embedder + decoder sigmoid p/f I=0 (A); dec_in z-like I=4 (A);
 decoder relu dec_layer0 I=4 / dec_layer1 I=5 (P, profiled). relRMSE@B6 mostly 2-8%.
 
-**SECOND analytic-bound violation (after +-24), found by profiling:** all 15
-DetectorEventStateEmbedder OUTPUTS exceed the cphi/alpha taxonomy bound -- observed-max I=2-3
-(range ~+-4 to +-8), not I=1. DetectorBit embedder output DOES stay I=1. So the two embedders
-are NOT the same variable class: DetectorBit output is tanh-bounded (-1,1), DetectorEvent output
-is wider. Format table uses profiled I=2 (prov=P!) for those -> no clipping. Reportable: the
-writeup taxonomy's "embedder -> cphi/alpha I=1" is wrong for the event embedder.
+**Taxonomy correction (found by reading source + profiling):** the Detector{Bit,Event}StateEmbedder
+OUTPUTS are NOT cphi/alpha. embed_pol_state (CNNModel.py:653/824) returns (-1,1) diagonal sub-entries
++ an UNBOUNDED non-diagonal polynomial Sum({x^2,x,1}*embedding_params) (params are exp/sigmoid of
+clip_zlike). So these outputs have no analytic bound -> PROFILED I (observed DetectorBit I=1,
+DetectorEvent I=2; the difference is learned-param magnitude, NOT a type difference or a "bound
+violation"). An earlier draft mislabeled them cphi/alpha I=1 and reported a spurious "violation" --
+retracted. The one REAL analytic-bound finding is the +-24 z-sum accumulator below.
 
 **Accumulator finding (Phase-4 HLS, NOT Phase-2):** zlike_preclip absmax = 43.5 / 41.1 / 72
 across seeds -- the z_e+z_m and correlator pre-clip accumulators EXCEED the assumed +-24;
