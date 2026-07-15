@@ -1,0 +1,70 @@
+[project]
+name = "fnal-qcdecoding-tests"
+version = "0.1.0"
+description = "Revival of surface-code ML error-decoding studies (Stim/PyMatching/TensorFlow)."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    # Core numerics — bounded to the numpy-1.26 generation: respects TensorFlow 2.15's
+    # numpy<2 ceiling and matches the era the notebooks were written against.
+    "numpy>=1.26,<2.0",
+    "scipy>=1.12,<1.14",
+    "scikit-learn>=1.4,<1.6",
+    "pandas>=2.1,<2.3",
+    "matplotlib>=3.8,<3.10",
+    # HEP columnar IO
+    "awkward>=2.6,<3",
+    "uproot>=5.3,<6",
+    # QEC simulation and decoders
+    "stim>=1.13,<2",
+    "pymatching>=2.2,<3",
+    "sinter>=1.13,<2",
+    "stimbposd>=0.2,<0.3",
+    # Neural-net decoders — Keras-2 generation (TF 2.15 pins keras 2.15). QKeras is
+    # added in a separate step so its resolution risk stays isolated.
+    "tensorflow==2.15.*",
+    # Notebook runtime
+    "jupyterlab>=4.0,<5",
+    "ipykernel>=6.25",
+    "qkeras>=0.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+package = false
+# Local revival targets macOS Apple Silicon only. The Linux/NVIDIA cluster environment
+# is a separate, later goal and will expand this list.
+environments = ["sys_platform == 'darwin'"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+pythonpath = ["."]
+filterwarnings = [
+    # The revived stack is intentionally legacy. These upstream deprecation warnings come
+    # from matplotlib/qkeras (old pyparsing API) and tensorflow-model-optimization
+    # (distutils) and cannot be fixed from this project. Scoped to their exact messages so
+    # warnings from our own code stay visible.
+    "ignore:.*deprecated - use.*:Warning",
+    "ignore:.*distutils Version classes are deprecated.*:DeprecationWarning",
+]

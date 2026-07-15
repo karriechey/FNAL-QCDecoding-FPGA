@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Created: 2026-07-14 | Last updated: 2026-07-15
+# Created: 2026-07-14
+# Last modified: 2026-07-15
 """Emit QUANTIZATION_EXPERIMENTS.ipynb -- a LIVE lab notebook for the FullRCNNModel
 quantization work (weight + activation, toward FPGA/hls4ml for Giuseppe).
 
@@ -45,11 +46,15 @@ Contamination fix: the old 200k tail overlapped the 10M train set by 190k shots
 
 cells.append(code("""import os, glob, json
 import numpy as np, pandas as pd
-OUT_Q   = os.path.expanduser('~/rcnn_threshold/out_q')          # Step-2 Pareto CSVs
-OUT_MC  = os.path.expanduser('~/rcnn_threshold/out_q_mcnemar')  # Phase 1 McNemar + Phase 3 JSON
+# Auto-detect: prefer the in-repo ./rcnn_threshold (data pulled from EAF into the repo),
+# fall back to ~/rcnn_threshold when running ON EAF. Works in both places.
+BASE = 'rcnn_threshold' if os.path.isdir('rcnn_threshold') else os.path.expanduser('~/rcnn_threshold')
+OUT_Q  = os.path.join(BASE, 'out_q')           # Step-2 Pareto CSVs
+OUT_MC = os.path.join(BASE, 'out_q_mcnemar')   # Phase 1 McNemar + Phase 3 JSON
 pd.set_option('display.width', 160); pd.set_option('display.max_columns', 40)
+print('BASE :', BASE)
 print('out_q     :', OUT_Q, '->', len(glob.glob(OUT_Q+'/*.csv')), 'csv')
-print('out_q_mcnemar:', OUT_MC, '->', sorted(os.path.basename(f) for f in glob.glob(OUT_MC+'/*')))"""))
+print('out_q_mcnemar:', OUT_MC, '->', sorted(os.path.basename(f) for f in glob.glob(OUT_MC+'/*'))[:6])"""))
 
 cells.append(md("""## Phase 0 — implementation + local gates (DONE)
 
@@ -83,11 +88,14 @@ g['xMWPM'] = g['mean']/mwpm if mwpm else np.nan
 print('MWPM (fresh tail) =', mwpm)
 g.sort_values('size_KB')"""))
 
-cells.append(code("""# The plot (regenerates plots/rcnn_d5_r3_qat_pareto.png)
-# !.venv/bin/python collate_pareto.py --out-dir ~/rcnn_threshold/out_q
+cells.append(code("""# The Pareto plot -- search known locations (repo snapshot / figures / EAF-style plots/)
 from IPython.display import Image
-p = 'plots/rcnn_d5_r3_qat_pareto.png'
-Image(p) if os.path.exists(p) else print('run collate_pareto.py to generate', p)"""))
+cands = ['analysis_notebooks/figures/pareto_clean.png',
+         'experiment_log/plots/pareto_frontier.png',
+         'experiment_log/results_snapshot/eaf/QuantumDecoderQKeras/plots/rcnn_d5_r3_qat_pareto.png',
+         'plots/rcnn_d5_r3_qat_pareto.png']
+p = next((x for x in cands if os.path.exists(x)), None)
+Image(p) if p else print('pareto plot not found in repo; regenerate with collate_pareto.py --out-dir', OUT_Q)"""))
 
 cells.append(md("""**Headline.** 8-bit lossless (= FP32); **6-bit is the knee** (37.8 KB, 5.3× smaller,
 beats MWPM). Sharp cliff 6→4 (4-bit ~3.4σ worse); 2-bit collapses. Variance blows up at

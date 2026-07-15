@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Created: 2026-07-13 | Last updated: 2026-07-15
+# Created: 2026-07-13
+# Last modified: 2026-07-15
 """Phase 3 (READ): per-tensor range profiling for the activation-quant design.
 
 This JSON is what the fixed_point_format_table (per-tensor ap_fixed<B,I> that configures

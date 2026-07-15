@@ -1,6 +1,6 @@
 # QAT weight/activation quantization — RUN LOG
 
-*Created: 2026-07-13 | Last updated: 2026-07-15*
+*Created: 2026-07-13 | Last modified: 2026-07-15*
 
 Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml handoff,
 collaborator Giuseppe). One row per run: date, git SHA, command, host, result line.
