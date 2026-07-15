@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Created: 2026-07-12 | Last updated: 2026-07-15
 """Re-evaluate a SAVED FullRCNNModel on a fixed test tail WITHOUT retraining,
 optionally with a paired McNemar test vs MWPM on the SAME shots.
 

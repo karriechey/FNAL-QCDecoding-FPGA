@@ -1,5 +1,7 @@
 # QAT weight/activation quantization — RUN LOG
 
+*Created: 2026-07-13 | Last updated: 2026-07-15*
+
 Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml handoff,
 collaborator Giuseppe). One row per run: date, git SHA, command, host, result line.
 Rule: no result is "real" without git SHA + pool gen-seed + saved weights all pinned here.
@@ -88,12 +90,39 @@ Quantizer assignment (integer bits fixed by taxonomy; only relu I profiled):
 Sweep = per-class budget (NOT a single global `a`), L-slice. Anchor = **w6/act-FP32** (not FP32/FP32).
 Run tag encodes w + every activation B. Smoke test asserts: no NaN through log/sqrt post-quant.
 
-## Phase 3 — fixed-point range profiling  [READ tool written]
+## Phase 3 — range profiling  [DONE 2026-07-14, 3 seeds, per-instance]
 
-`profile_ranges.py` — run on the **w6** model (weights 6-bit, act FP32), 2 sites
-(dec_h1_out/dec_h2_out) + records analytic sites as clip-sanity (dec_in must be ⊆[−12,12]).
-Sets quantized_relu I. Re-run after activation-QAT to confirm no site saturates.
-Deliverable: per-layer `ap_fixed<B,I>` table = numerical contract for Giuseppe's HLS handoff.
+`profile_ranges.py` on the w6 model, all custom-layer instances wrapped (pure-wrap: p_L
+EXACT vs sweep all 3 seeds), clip sites keyed per instance (0 #agg of 91). Outputs
+`profile_ranges_w6_seed{0,1,2}.json`; collate `collate_profile.py`.
+
+**STRUCTURAL RESULT (measured, 3 seeds) — phase matrix C definiteness:**
+Measured n (state-count) + per-shot lambda_min(C) (C: diag 1, off-diag = actual c_phi):
+```
+  correlator   n   lambda_min(C)<0        combination<=0 (symptom)
+  #0-#4        2   0.00% all seeds        0.00%     <- provably PSD; also proves C-assembly correct
+  #5-#9        3   90-98% all seeds       2-19%
+```
+The RCNN phase matrix is UNCONSTRAINED -> PSD for the n=2 (lead-in) correlators, indefinite
+~95% for the n=3 (recurrence) correlators. This is the CAUSE of the log-domain combination
+going <=0. Remedy is a Phase-4 CHOICE, NOT decided: (a) signed-LSE, or (b) constrain c_phi to
+PSD (Gram parameterization) -> plain LSE works but needs retrain, may cost accuracy (model uses
+the indefinite region). n=2 correctness assert (lambda_min=1-|c|>0) PASSED. Necessity bound
+frac(lam<0)>=frac(nonpos) holds (n=2 fp-dust needs 1e-3 tol).
+
+**x-like un-quantizable (per instance, 3 seeds):** every CNNKernelWithEmbedding / CNNStateCorrelator
+output has frac@B6<0, I(max) up to 17 (correlator #2 seed1: max 1.2e5). No ap_fixed at sane B.
+-> log-domain (Phase 4). x-like I moves wildly across seeds (irrelevant, un-quantizable).
+
+**Phase-2 bounded quantizer config (seed-stable to +-1, take max across seeds):**
+z-like I=4 (post-clip), decoder relu I=5-6, DetectorEvent embedder I=2-3, DetectorBit I=1,
+Triplet/sigmoid I=0. relRMSE@B6 mostly 2-8% (I from p99.9 halves the worst).
+
+**Accumulator finding (Phase-4 HLS, NOT Phase-2):** zlike_preclip absmax = 43.5 / 41.1 / 72
+across seeds -- the z_e+z_m and correlator pre-clip accumulators EXCEED the assumed +-24;
+need I=7 (2^7=128). Post-clip z-like (the QAT quantizer target) stays ⊆+-12 -> I=4 valid.
+
+Deliverable: per-layer ap_fixed table = the numerical contract for Giuseppe's HLS handoff.
 
 ---
 
