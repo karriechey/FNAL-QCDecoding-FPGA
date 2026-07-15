@@ -1,0 +1,2 @@
+architecture,d,p,rounds,kernel,seed,n_train,n_test,epochs,epochs_ran,batch_size,n_params,p_L,mwpm_p_L,base_rate,beats_base_rate,best_val_loss,train_time_s
+FullRCNNModel,5,0.01,3,3,0,10000000,200000,50,50,10000,51547,0.04562,0.04875,0.28042,1,0.11665,13081.8

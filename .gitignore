@@ -1,0 +1,6 @@
+
+# Large regenerable data pools (Stim + gen-seed; NOT committed -- 16G). Regenerate via
+# generate_pools.py / make_fresh_tail.py, or pull from EAF ~/rcnn_threshold/.
+*.npz
+.DS_Store
+*.log
