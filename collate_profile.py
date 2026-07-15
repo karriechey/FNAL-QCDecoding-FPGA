@@ -145,7 +145,10 @@ def main():
         if k.startswith('dec_layer') and 'relu' in k:  return ('relu', False, None)   # profiled
         if k.startswith('dec_layer') and 'sigmoid' in k: return ('p/f', False, 0)
         if 'TripletStateProbEmbedder' in k:            return ('p/f', False, 0)
-        if 'DetectorBitStateEmbedder' in k or 'DetectorEventStateEmbedder' in k: return ('cphi/alpha', True, 1)
+        # Detector{Bit,Event}StateEmbedder OUTPUT is NOT cphi/alpha: embed_pol_state (CNNModel.py:653/824)
+        # returns (-1,1) diagonal sub-entries + UNBOUNDED non-diagonal poly Sum({x^2,x,1}*embed_params).
+        # No analytic bound -> profiled I (observed: DetectorBit I=1, DetectorEvent I=2 -- magnitude, not type).
+        if 'DetectorBitStateEmbedder' in k or 'DetectorEventStateEmbedder' in k: return ('embedding', True, None)
         if 'Combiner#' in k and k.endswith('_out'):    return ('z-like', True, 4)      # post-log z''
         return (None, None, None)                      # x-like / other -> not a config row
     cfg = out_sites(lambda k: classify(k)[0] is not None)
