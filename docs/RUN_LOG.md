@@ -116,9 +116,10 @@ output has frac@B6<0, I(max) up to 17 (correlator #2 seed1: max 1.2e5). No ap_fi
 -> log-domain (Phase 4). x-like I moves wildly across seeds (irrelevant, un-quantizable).
 
 **Phase-2 bounded quantizer config (fixed_point_format_table, collate_profile.py section 4;
-seed-stable under max-across-seeds):** DetectorBit embedder cphi/alpha I=1 (A, holds);
-combiners z-like I=4 (A); Triplet embedder + decoder sigmoid p/f I=0 (A); dec_in z-like I=4 (A);
-decoder relu dec_layer0 I=4 / dec_layer1 I=5 (P, profiled). relRMSE@B6 mostly 2-8%.
+seed-stable under max-across-seeds):** Detector{Bit,Event} embedders type 'embedding', PROFILED
+I=1/2 (P, not cphi/alpha -- see correction below); combiners z-like I=4 (A); Triplet embedder +
+decoder sigmoid p/f I=0 (A); dec_in z-like I=4 (A); decoder relu dec_layer0 I=4 / dec_layer1 I=5
+(P, profiled). relRMSE@B6 mostly 2-8%.
 
 **Taxonomy correction (found by reading source + profiling):** the Detector{Bit,Event}StateEmbedder
 OUTPUTS are NOT cphi/alpha. embed_pol_state (CNNModel.py:653/824) returns (-1,1) diagonal sub-entries
