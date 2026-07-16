@@ -99,17 +99,35 @@ def run():
     print(f'  identity check: {"passed (ActQuant is an exact no-op when disabled)" if ok else "FAILED -- quantizers are misplaced, stop here"}')
     assert ok, 'identity check failed: act_bits=None does not reproduce the anchor p_L'
 
-    # Part 2: with activation quantization on, the output must change (confirms the quantizers run).
-    print('\n=== quantization-active check: act_bits=8 must change p_L relative to the anchor ===')
+    # Part 2: confirm the quantizers actually run when enabled. Two independent checks, because a
+    # p_L test alone is weak -- an 8-bit change of a few 1e-6 could be rounding noise and would pass
+    # a "p_L changed at all" assertion while nothing meaningful ran.
+    #
+    # Part 2a (direct): quantize a known tensor and require the values to actually change. This is
+    # independent of how sensitive p_L is to the precision, so it cannot be fooled by rounding noise.
+    from CNNModel_quantized import ActQuant
+    print('\n=== quantization-active check (direct): ActQuant.qa must modify a known tensor ===')
+    ActQuant.set_bits(8)
+    t = np.array([0.123456789, -0.98765, 0.5, 3.14159], dtype=np.float32)
+    qt = np.asarray(ActQuant.qa(tf.constant(t), 'zlike'))
+    max_delta = float(np.max(np.abs(qt - t)))
+    ActQuant.set_bits(None)
+    print(f'  8-bit zlike quantization of {t.tolist()} -> max|delta|={max_delta:.2e}')
+    assert max_delta > 0, 'ActQuant.qa did not modify the tensor when enabled -- quantizers inert'
+
+    # Part 2b (end-to-end): with act_bits=8 the model p_L must change by a MEANINGFUL amount
+    # (threshold 1e-4, not the 1e-6 identity tolerance), confirming the quantizers affect the output.
+    print('\n=== quantization-active check (end-to-end): act_bits=8 must change p_L by > 1e-4 ===')
     w0 = wpath(0)
     if os.path.exists(w0):
         pL8 = eval_pL(args.weight_bits, 8, w0, db, de, truth, d, k, r,
                       args.hidden, args.hidden_layers, args.npol, args.batch_size)
-        changed = abs(pL8 - ANCHOR[0]) > args.tol
+        delta = abs(pL8 - ANCHOR[0])
+        changed = delta > 1e-4
         print(f'  seed0 with act_bits=8: p_L={pL8:.6f}  vs anchor {ANCHOR[0]:.6f}  '
-              f'{"changed (quantizers are running)" if changed else "UNCHANGED -- quantizers are not running"}')
-        assert changed, 'quantization-active check failed: act_bits=8 did not change p_L'
-    print('\n=== both checks passed. The Phase 2a activation-precision sweep is now meaningful. ===')
+              f'|delta|={delta:.2e}  {"changed meaningfully" if changed else "change too small -- check quantizers"}')
+        assert changed, 'act_bits=8 changed p_L by <= 1e-4 -- quantizers may not be affecting the output'
+    print('\n=== all checks passed. The Phase 2a activation-precision sweep is now meaningful. ===')
 
 
 if __name__ == '__main__':

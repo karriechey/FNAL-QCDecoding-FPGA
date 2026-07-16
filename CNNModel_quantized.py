@@ -110,21 +110,38 @@ class ActQuant:
     (collate_profile.py) / taxonomy. `bits` None or >=32 => qa() is a byte-exact no-op, so
     the model reproduces the w6/act-FP32 anchor exactly (the identity check).
 
-    Per-class (integer_bits I, keep_negative, is_relu):
-      zlike  signed  I=4  (post-clip z'' <= |12|; combiner output + decoder input)
-      pf     unsigned I=0  (sigmoid fractions in (0,1); triplet-prob embedder)
-      cphi2  signed  I=1  (2*cos(phi) in (-2,2); combiner phase term)
-      embed  signed  I=2  (Detector{Bit,Event} embedder OUTPUT -- unbounded poly, PROFILED;
-                           I=2 covers DetectorEvent max, DetectorBit(I=1) fits too)
-      relu   unsigned I=6  (decoder hidden ReLU; seeded at ABS-MAX I=6 = SAFE, tighten to
-                           p99.9 I=4/5 only after the model is confirmed to train -- see RUN_LOG)
-    x-like intermediates are NOT quantized here (un-representable; Phase 4 LSE).
+    Integer-bit convention: these are the QKeras `quantized_bits(bits, integer, keep_negative)`
+    `integer` argument, which EXCLUDES the sign bit. A signed class with integer=I represents the
+    range [-2^I, 2^I); i.e. it corresponds to ap_fixed<bits, I+1> in the paper's sign-inclusive
+    notation. (So the weight quantizer's quantized_bits(B,1) == ap_fixed<B,2>, matching the header.)
+
+    Per-class (QKeras integer bits, keep_negative, is_relu):
+      zlike  signed   integer=4  post-clip z'' with |z''| <= 12; combiner output + decoder input.
+      pf     unsigned integer=0  sigmoid fractions in (0,1); triplet-prob embedder output.
+      cphi   signed   integer=0  c_phi = tanh in (-1,1), range [-1,1). We quantize c_phi at its
+                                 natural range here; the phase term 2*c_phi is then formed by a
+                                 lossless power-of-2 multiply AFTER quantization (see combiner
+                                 site). Quantizing the pre-doubled c_phi (rather than 2*c_phi at
+                                 integer=1) matches the reference architecture's variable and wastes no fractional bit.
+      embed  signed   integer=2  Detector{Bit,Event} embedder OUTPUT. This is NOT a bounded
+                                 c_phi/alpha tensor: embed_pol_state returns a (-1,1) diagonal part
+                                 plus an UNBOUNDED non-diagonal polynomial, so its width is PROFILED.
+                                 integer=2 covers the DetectorEvent max; DetectorBit (which needs
+                                 only integer=1) also fits.
+      relu   unsigned integer=6  decoder hidden-ReLU outputs. Seeded at the absolute-maximum width
+                                 (integer=6), which is SAFE (nothing saturates), so a failed first
+                                 sweep cannot be blamed on clipping. Tighten to the 99.9th-percentile
+                                 width (integer=4/5) only after confirming the model trains; see
+                                 docs/RUN_LOG.md.
+    x-like intermediates (kernel/correlator outputs, combiner pre-log products) are NOT quantized
+    here -- they span ~10 decades and are un-representable in fixed point; they are handled in
+    Phase 4 (log-domain / LSE rewrite).
     """
     _bits = None
-    _CLASSES = {              # class -> (integer_bits, keep_negative, is_relu)
+    _CLASSES = {              # class -> (QKeras integer bits, keep_negative, is_relu)
         'zlike': (4, True, False),
         'pf':    (0, False, False),
-        'cphi2': (1, True, False),
+        'cphi':  (0, True, False),   # c_phi in (-1,1); 2*c_phi formed downstream by a power-of-2 shift
         'embed': (2, True, False),
         'relu':  (6, False, True),
     }
@@ -184,6 +201,15 @@ def _cnnkwe_get_mapped_bias(self, n):
     return tf.repeat(tf.gather(kernel_bias, self.final_res_map, axis=1), n, axis=0)
 
 
+# CNNStateCorrelator: WEIGHTS are quantized (below). Its OUTPUT activation is deliberately
+# NOT quantized here. At the r=3 default (use_exp_act=True) the correlator returns the x-like
+# clip_exp result in [0, inf) -- the same ~10-decade x-domain tensor the Phase-3 lambda_min(C)
+# result is about (non-positive on 5-19% of shots for the n>=3 instances, ranging up to ~4e4).
+# x-like tensors are un-representable in fixed point, so this output is left FP32 and handled in
+# Phase 4 (log-domain / LSE), exactly like the combiner's pre-log x-like intermediates. The
+# alternate use_exp_act=False branch returns a p/f value res/(1+res) in (0,1), but that branch is
+# not on the r=3 path and is not activation-quantized here; if it is ever enabled it would need
+# ActQuant.qa(..., 'pf') on the correlator output.
 def _cnnsc_get_mapped_weights(self, w, wmap):
     # CNNStateCorrelator: quantizes params_state_evolutions
     # (call() routes every use of that weight through this method before its matmul).
@@ -228,8 +254,11 @@ def _combiner_call(self, all_inputs):
             frac_values = ActQuant.qa(
                 self.frac_activation(VariableBounds.clip_zlike(WeightQuant.q(frac_params))), 'pf')
         if phase_params is not None:
+            # the reference architecture Eq. 3.1: the phase term is 2*c_phi with c_phi = tanh(...) in (-1,1).
+            # Quantize c_phi at its natural (-1,1) range ('cphi', integer=0), THEN multiply by 2 --
+            # the *2 is a lossless power-of-2 shift, so it needs no quantizer and wastes no bit.
             two_phase_values = ActQuant.qa(
-                self.phase_activation(WeightQuant.q(phase_params)) * 2, 'cphi2')
+                self.phase_activation(WeightQuant.q(phase_params)), 'cphi') * 2
         if inverter_params is not None:
             inverter_values = self.inverter_activation(WeightQuant.q(inverter_params)) * 2  # dormant at r=3
 
