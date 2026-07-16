@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 # Created: 2026-07-16
 # Last modified: 2026-07-16
-"""Phase 2a GATE: ActQuant identity check. NOTHING downstream counts until this passes.
+"""Phase 2a identity check for ActQuant. Downstream sweep numbers are only meaningful after
+this passes.
 
-With activation quant DISABLED (act_bits=None), the w6 model MUST reproduce the
-w6/act-FP32 anchor p_L exactly -- 0.046675 / 0.047715 / 0.045580 for seeds 0/1/2, to 1e-6.
-Same proof that made the profiler trustworthy: if disabling activation quant does not recover
-the anchor bit-for-bit, the ActQuant.qa() calls are in the wrong places and every sweep number
-is garbage.
+Part 1 (identity check): with activation quantization disabled (act_bits=None), the 6-bit-weight
+model must reproduce the 6-bit-weight / float-activation anchor p_L exactly --
+0.046675 / 0.047715 / 0.045580 for seeds 0/1/2, agreeing to 1e-6. This is the same check that
+validated the profiler: if disabling activation quantization does not recover the anchor
+value, the ActQuant.qa() calls have been inserted in the wrong places and every later sweep
+number is wrong.
 
-Then a BITE check: with act_bits=8 the p_L must CHANGE (quantizers actually fire). Both use
-model.predict (graph), matching how the anchor was recorded (eval_on_tail), so the identity
-comparison is exact to the CSV's 6-dp rounding, not subject to graph/eager boundary flips.
+Part 2 (quantization-active check): with act_bits=8, p_L must change relative to the anchor,
+confirming the quantizers actually run.
 
-  .venv/bin/python phase2a_identity_check.py            # gate all 3 seeds + bite check
+Both parts use model.predict (graph execution), which matches how the anchor p_L was originally
+recorded (eval_on_tail), so the identity comparison is exact to the anchor CSV's 6-decimal
+rounding and is not affected by graph-vs-eager threshold-boundary differences.
+
+  .venv/bin/python phase2a_identity_check.py            # runs both parts, all 3 seeds
 """
 import argparse, os
 import numpy as np
@@ -67,7 +72,7 @@ def run():
     d, r, k, nte = args.d, args.rounds, args.kernel, args.n_test
     binary_t, _, idx_t, _ = get_types(d, r, k)
     if not os.path.exists(pool):
-        raise SystemExit(f'[gate] MISSING pool {pool}')
+        raise SystemExit(f'MISSING pool {pool}')
     z = np.load(pool)
     meas = z['measurements'].astype(binary_t); de = z['det_evts'].astype(binary_t)
     flips = z['flips'].astype(binary_t)
@@ -78,30 +83,33 @@ def run():
     def wpath(seed):
         return os.path.join(wdir, f'rcnn_d{d}_p{args.p:.3f}_r{r}_w{args.weight_bits}_seed{seed}_ntr10000000.weights.h5')
 
-    print('=== GATE: act_bits=None must reproduce the w6/act-FP32 anchor exactly ===')
+    # Part 1: with activation quantization disabled, the model must reproduce the anchor exactly.
+    print('=== identity check: act_bits=None must reproduce the 6-bit-weight/float-activation anchor ===')
     ok = True
     for seed, exp in ANCHOR.items():
         w = wpath(seed)
         if not os.path.exists(w):
-            print(f'  seed{seed}: MISSING {w} -- skip'); continue
+            print(f'  seed{seed}: missing weights {w} -- skipped'); continue
         pL = eval_pL(args.weight_bits, None, w, db, de, truth, d, k, r,
                      args.hidden, args.hidden_layers, args.npol, args.batch_size)
-        d_ = abs(pL - exp); good = d_ <= args.tol
+        diff = abs(pL - exp); good = diff <= args.tol
         ok = ok and good
-        print(f'  seed{seed}: p_L={pL:.6f}  anchor={exp:.6f}  |d|={d_:.2e}  {"PASS" if good else "FAIL <<<"}')
-    print(f'  IDENTITY GATE: {"PASS -- ActQuant is a clean no-op when disabled" if ok else "FAIL -- quantizers misplaced, STOP"}')
-    assert ok, 'identity gate failed: act_bits=None does not reproduce the anchor'
+        print(f'  seed{seed}: p_L={pL:.6f}  anchor={exp:.6f}  |diff|={diff:.2e}  '
+              f'{"match" if good else "MISMATCH -- fails"}')
+    print(f'  identity check: {"passed (ActQuant is an exact no-op when disabled)" if ok else "FAILED -- quantizers are misplaced, stop here"}')
+    assert ok, 'identity check failed: act_bits=None does not reproduce the anchor p_L'
 
-    print('\n=== BITE: act_bits=8 must CHANGE p_L (quantizers actually fire) ===')
+    # Part 2: with activation quantization on, the output must change (confirms the quantizers run).
+    print('\n=== quantization-active check: act_bits=8 must change p_L relative to the anchor ===')
     w0 = wpath(0)
     if os.path.exists(w0):
         pL8 = eval_pL(args.weight_bits, 8, w0, db, de, truth, d, k, r,
                       args.hidden, args.hidden_layers, args.npol, args.batch_size)
         changed = abs(pL8 - ANCHOR[0]) > args.tol
-        print(f'  seed0 act8 p_L={pL8:.6f}  vs anchor {ANCHOR[0]:.6f}  '
-              f'{"BITES (changed)" if changed else "NO CHANGE <<< quantizers not firing"}')
-        assert changed, 'bite check failed: act_bits=8 did not change p_L -- quantizers inert'
-    print('\n=== GATE + BITE PASSED. Phase 2a sweep is now meaningful. ===')
+        print(f'  seed0 with act_bits=8: p_L={pL8:.6f}  vs anchor {ANCHOR[0]:.6f}  '
+              f'{"changed (quantizers are running)" if changed else "UNCHANGED -- quantizers are not running"}')
+        assert changed, 'quantization-active check failed: act_bits=8 did not change p_L'
+    print('\n=== both checks passed. The Phase 2a activation-precision sweep is now meaningful. ===')
 
 
 if __name__ == '__main__':
