@@ -1,7 +1,7 @@
 # QAT weight/activation quantization — RUN LOG
 
 *Created: 2026-07-13 | Last modified: 2026-07-15*
-*Last verified against code: cc8a7f2, 2026-07-15*
+*Last verified against code: 45518e8, 2026-07-15*
 
 Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml handoff,
 collaborator Giuseppe). One row per run: date, git SHA, command, host, result line.
@@ -134,6 +134,24 @@ across seeds -- the z_e+z_m and correlator pre-clip accumulators EXCEED the assu
 need I=7 (2^7=128). Post-clip z-like (the QAT quantizer target) stays ⊆+-12 -> I=4 valid.
 
 Deliverable: per-layer ap_fixed table = the numerical contract for Giuseppe's HLS handoff.
+
+## Phase 2a — activation-QAT build notes (pre-build decisions, NOT yet run)
+
+**Decoder ReLU seeding decision (make it NOW, don't discover it):** seed ActQuant._int_bits for the
+two decoder ReLU sites (dec_layer0/1) at the ABS-MAX I=6 (safe, nothing clips) for the FIRST sweep,
+NOT the p99.9 I=4/5 in the format table. Reason: start at p99.9 and if Phase 2a trains badly you can't
+tell clip-loss from quant-loss. Start safe (I=6), tighten to p99.9 as an optimization ONCE the model
+is confirmed to train. One-line change to the ActQuant seed.
+
+**Honest scope of Phase 2a:** it quantizes weights (6-bit) + the ~37 BOUNDED activation sites from the
+fixed_point_format_table; x-like intermediates stay FP32. So the output is a PARTIALLY quantized model
+-- reportable (Fig 2: accuracy vs activation precision) but NOT synthesizable. The synthesizable model
+needs Phase 4 (x-domain LSE rewrite) -- that is the Giuseppe deliverable. Frame as "all bounded tensors
+quantized; exponential-domain intermediates addressed in Phase 4", NOT "model is now fixed-point".
+
+**Predicted failure mode (mechanism, not a bug to hunt):** the straight-through estimator is shaky
+upstream of an exp (Δz -> e^Δ multiplicative). If the activation-bit sweep DIVERGES at low bits, that is
+the STE-through-exp mechanism, expected -- not a code bug.
 
 ---
 
