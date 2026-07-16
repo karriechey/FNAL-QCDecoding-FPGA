@@ -151,9 +151,11 @@ def run():
     size_kb = round(n_params * eff_bits / 8 / 1024, 2)
 
     os.makedirs(args.out_dir, exist_ok=True)
-    # Only append the activation-bits suffix when activations are actually quantized, so weight-only
-    # (act_bits=None) runs keep the exact Phase-1 tag/filename and do not appear renamed.
-    a_suffix = '' if eff_act == 32 else f'_a{eff_act}'
+    # Append the activation-bits suffix whenever --act-bits was explicitly given -- INCLUDING =32,
+    # which is the Phase-2a reconvergence control (activation quant off, but retrained) and must be
+    # distinguishable from a weight-only run. Weight-only runs (no --act-bits, abits is None) keep
+    # the exact Phase-1 tag/filename so they do not appear renamed.
+    a_suffix = f'_a{eff_act}' if abits is not None else ''
     tag = f'rcnn_d{d}_p{p:.3f}_r{r}_w{eff_bits}{a_suffix}_seed{seed}_ntr{ntr}'
     fields = ['architecture', 'd', 'p', 'rounds', 'kernel', 'seed', 'n_train', 'n_test',
               'weight_bits', 'act_bits', 'size_kb', 'epochs', 'epochs_ran', 'batch_size', 'n_params',
