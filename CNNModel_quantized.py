@@ -1,3 +1,5 @@
+# Created: 2026-07-12
+# Last modified: 2026-07-16
 """Weight quantization for the reference architecture's FullRCNNModel -- modified version of CNNModel.py.
 
 Note
@@ -60,6 +62,9 @@ from CNNModel import (
     CNNStateCorrelator,
     RCNNKernelCombiner,
     StateDecoder,
+    DetectorBitStateEmbedder,
+    DetectorEventStateEmbedder,
+    TripletStateProbEmbedder,
     VariableBounds,
     arrayops_shape,
 )
@@ -94,6 +99,59 @@ class WeightQuant:
         q = quantized_bits(WeightQuant._bits, 1)
         return QDense(units, activation=activation,
                       kernel_quantizer=q, bias_quantizer=q)
+
+
+from qkeras import quantized_relu
+
+
+class ActQuant:
+    """Process-global ACTIVATION-quantization config (Phase 2a). One activation word length
+    `bits` (B), swept; integer bits I fixed PER CLASS from the fixed_point_format_table
+    (collate_profile.py) / taxonomy. `bits` None or >=32 => qa() is a byte-exact no-op, so
+    the model reproduces the w6/act-FP32 anchor exactly (the identity gate).
+
+    Per-class (integer_bits I, keep_negative, is_relu):
+      zlike  signed  I=4  (post-clip z'' <= |12|; combiner output + decoder input)
+      pf     unsigned I=0  (sigmoid fractions in (0,1); triplet-prob embedder)
+      cphi2  signed  I=1  (2*cos(phi) in (-2,2); combiner phase term)
+      embed  signed  I=2  (Detector{Bit,Event} embedder OUTPUT -- unbounded poly, PROFILED;
+                           I=2 covers DetectorEvent max, DetectorBit(I=1) fits too)
+      relu   unsigned I=6  (decoder hidden ReLU; seeded at ABS-MAX I=6 = SAFE, tighten to
+                           p99.9 I=4/5 only after the model is confirmed to train -- see RUN_LOG)
+    x-like intermediates are NOT quantized here (un-representable; Phase 4 LSE).
+    """
+    _bits = None
+    _CLASSES = {              # class -> (integer_bits, keep_negative, is_relu)
+        'zlike': (4, True, False),
+        'pf':    (0, False, False),
+        'cphi2': (1, True, False),
+        'embed': (2, True, False),
+        'relu':  (6, False, True),
+    }
+    _quantizers = {}
+
+    @staticmethod
+    def set_bits(bits):
+        ActQuant._bits = None if (bits is None or bits >= 32) else bits
+        ActQuant._quantizers = {}
+        if ActQuant._bits is not None:
+            for cls, (I, kneg, is_relu) in ActQuant._CLASSES.items():
+                ActQuant._quantizers[cls] = (quantized_relu(ActQuant._bits, I) if is_relu
+                                             else quantized_bits(ActQuant._bits, I, keep_negative=kneg))
+
+    @staticmethod
+    def set_relu_integer(I):
+        """Retune the decoder-ReLU integer width (default abs-max I=6; tighten to p99.9 I=4/5
+        only once the model trains). Call BEFORE set_bits/build."""
+        i, _, r = ActQuant._CLASSES['relu']
+        ActQuant._CLASSES['relu'] = (I, False, True)
+
+    @staticmethod
+    def qa(x, cls):
+        """Quantize an activation tensor at its point of use (no-op in FP32/disabled mode)."""
+        if x is None or ActQuant._bits is None:
+            return x
+        return ActQuant._quantizers[cls](x)
 
 
 # ---------------------------------------------------------------------------
@@ -167,11 +225,13 @@ def _combiner_call(self, all_inputs):
         two_phase_values = None
         inverter_values = None
         if frac_params is not None:
-            frac_values = self.frac_activation(VariableBounds.clip_zlike(WeightQuant.q(frac_params)))
+            frac_values = ActQuant.qa(
+                self.frac_activation(VariableBounds.clip_zlike(WeightQuant.q(frac_params))), 'pf')
         if phase_params is not None:
-            two_phase_values = self.phase_activation(WeightQuant.q(phase_params)) * 2
+            two_phase_values = ActQuant.qa(
+                self.phase_activation(WeightQuant.q(phase_params)) * 2, 'cphi2')
         if inverter_params is not None:
-            inverter_values = self.inverter_activation(WeightQuant.q(inverter_params)) * 2
+            inverter_values = self.inverter_activation(WeightQuant.q(inverter_params)) * 2  # dormant at r=3
 
         for idq_idkqs in data_qubit_idxs:
             idq = idq_idkqs[0]
@@ -224,7 +284,9 @@ def _combiner_call(self, all_inputs):
                         two_cos_phase = two_phase_values[iphase]
                         sum_kouts = sum_kouts + tf.sqrt(sum_inputs[idx_i1] * sum_inputs[idx_i2]) * two_cos_phase
                         iphase += 1
-            sum_kouts = tf.math.log(VariableBounds.clip_exp(sum_kouts))
+            # x-like intermediates (single_kernout, kout, sum_inputs, pre-log sum_kouts) stay FLOAT
+            # (un-representable in fixed point -> Phase 4 LSE). Quantize only the z-like output z''.
+            sum_kouts = ActQuant.qa(tf.math.log(VariableBounds.clip_exp(sum_kouts)), 'zlike')
             data_qubit_idxs_preds.append([idq, sum_kouts])
     data_qubit_idxs_preds.sort()
 
@@ -274,6 +336,26 @@ def _statedecoder_init(self, code_distance, hidden_specs, do_all_data_qubits):
         self.layers_decoder.append(tf.keras.layers.Activation('sigmoid'))
 
 
+def _statedecoder_call(self, inputs):
+    # StateDecoder.call, mirrored; adds ActQuant on the z-like input (dec_in) and on each hidden
+    # ReLU output (all layers but the final sigmoid, which is the decision -> left FP). No-op when
+    # ActQuant disabled => byte-identical to the original (the identity gate).
+    x = ActQuant.qa(inputs, 'zlike')
+    last = len(self.layers_decoder) - 1
+    for i, layer in enumerate(self.layers_decoder):
+        x = layer(x)
+        if i < last:
+            x = ActQuant.qa(x, 'relu')
+    return x
+
+
+def _make_output_quant_call(orig, cls):
+    """Wrap a layer's call so its OUTPUT is activation-quantized (no-op when disabled)."""
+    def call(self, *a, **kw):
+        return ActQuant.qa(orig(self, *a, **kw), cls)
+    return call
+
+
 # ---------------------------------------------------------------------------
 # Installation (idempotent). Keeps a handle on the originals so quantization
 # can be fully undone within a process if ever needed (restore_originals()).
@@ -295,6 +377,10 @@ def _install_patches():
         (RCNNKernelCombiner, 'call'): RCNNKernelCombiner.call,
         (RCNNKernelCombiner, 'eval_final_data_qubit_pred_layer'): RCNNKernelCombiner.eval_final_data_qubit_pred_layer,
         (StateDecoder, '__init__'): StateDecoder.__init__,
+        (StateDecoder, 'call'): StateDecoder.call,
+        (DetectorBitStateEmbedder, 'call'): DetectorBitStateEmbedder.call,
+        (DetectorEventStateEmbedder, 'call'): DetectorEventStateEmbedder.call,
+        (TripletStateProbEmbedder, 'call'): TripletStateProbEmbedder.call,
     })
     CNNKernelWithEmbedding.get_mapped_weights = _cnnkwe_get_mapped_weights
     CNNKernelWithEmbedding.get_mapped_bias = _cnnkwe_get_mapped_bias
@@ -303,6 +389,11 @@ def _install_patches():
     RCNNKernelCombiner.call = _combiner_call
     RCNNKernelCombiner.eval_final_data_qubit_pred_layer = _combiner_eval_final
     StateDecoder.__init__ = _statedecoder_init
+    StateDecoder.call = _statedecoder_call
+    # embedder OUTPUT activation-quant (Detector{Bit,Event} -> 'embed'; Triplet -> 'pf')
+    DetectorBitStateEmbedder.call = _make_output_quant_call(_ORIGINALS[(DetectorBitStateEmbedder, 'call')], 'embed')
+    DetectorEventStateEmbedder.call = _make_output_quant_call(_ORIGINALS[(DetectorEventStateEmbedder, 'call')], 'embed')
+    TripletStateProbEmbedder.call = _make_output_quant_call(_ORIGINALS[(TripletStateProbEmbedder, 'call')], 'pf')
     _PATCHED = True
 
 
@@ -314,6 +405,7 @@ def restore_originals():
     _ORIGINALS.clear()
     _PATCHED = False
     WeightQuant.set_bits(None)
+    ActQuant.set_bits(None)
 
 
 def enable_weight_quantization(weight_bits):
@@ -323,8 +415,18 @@ def enable_weight_quantization(weight_bits):
     _install_patches()
 
 
-def build_quantized_rcnn(weight_bits, *args, **kwargs):
-    """Convenience: enable quantization at `weight_bits`, then build FullRCNNModel.
-    Positional/keyword args are forwarded verbatim to FullRCNNModel."""
+def enable_activation_quantization(act_bits):
+    """Set the activation word length B (Phase 2a) and install the wrappers.
+    act_bits None or >=32 => activations stay FP32 (the anchor / identity gate)."""
+    ActQuant.set_bits(act_bits)
+    _install_patches()
+
+
+def build_quantized_rcnn(weight_bits, *args, act_bits=None, **kwargs):
+    """Convenience: enable weight (and optionally activation) quantization, then build
+    FullRCNNModel. Positional/keyword args are forwarded verbatim to FullRCNNModel.
+    act_bits=None (default) => activations FP32, so existing weight-only callers are unchanged
+    and the model reproduces the w6/act-FP32 anchor bit-for-bit (the Phase-2a identity gate)."""
     enable_weight_quantization(weight_bits)
+    enable_activation_quantization(act_bits)
     return FullRCNNModel(*args, **kwargs)
