@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Created: 2026-07-14
+# Last modified: 2026-07-16
 """Collate the QAT per-run CSVs into the weight-bit-width Pareto (Step 2 deliverable).
 
 Reads OUT_DIR/rcnn_d{d}_p{p}_r{r}_w{bits}_seed{seed}_ntr{ntr}.csv (from train_one_quantized)
