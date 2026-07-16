@@ -108,7 +108,7 @@ class ActQuant:
     """Process-global ACTIVATION-quantization config (Phase 2a). One activation word length
     `bits` (B), swept; integer bits I fixed PER CLASS from the fixed_point_format_table
     (collate_profile.py) / taxonomy. `bits` None or >=32 => qa() is a byte-exact no-op, so
-    the model reproduces the w6/act-FP32 anchor exactly (the identity gate).
+    the model reproduces the w6/act-FP32 anchor exactly (the identity check).
 
     Per-class (integer_bits I, keep_negative, is_relu):
       zlike  signed  I=4  (post-clip z'' <= |12|; combiner output + decoder input)
@@ -339,7 +339,7 @@ def _statedecoder_init(self, code_distance, hidden_specs, do_all_data_qubits):
 def _statedecoder_call(self, inputs):
     # StateDecoder.call, mirrored; adds ActQuant on the z-like input (dec_in) and on each hidden
     # ReLU output (all layers but the final sigmoid, which is the decision -> left FP). No-op when
-    # ActQuant disabled => byte-identical to the original (the identity gate).
+    # ActQuant disabled => byte-identical to the original (the identity check).
     x = ActQuant.qa(inputs, 'zlike')
     last = len(self.layers_decoder) - 1
     for i, layer in enumerate(self.layers_decoder):
@@ -417,7 +417,7 @@ def enable_weight_quantization(weight_bits):
 
 def enable_activation_quantization(act_bits):
     """Set the activation word length B (Phase 2a) and install the wrappers.
-    act_bits None or >=32 => activations stay FP32 (the anchor / identity gate)."""
+    act_bits None or >=32 => activations stay FP32 (the anchor / identity check)."""
     ActQuant.set_bits(act_bits)
     _install_patches()
 
@@ -426,7 +426,7 @@ def build_quantized_rcnn(weight_bits, *args, act_bits=None, **kwargs):
     """Convenience: enable weight (and optionally activation) quantization, then build
     FullRCNNModel. Positional/keyword args are forwarded verbatim to FullRCNNModel.
     act_bits=None (default) => activations FP32, so existing weight-only callers are unchanged
-    and the model reproduces the w6/act-FP32 anchor bit-for-bit (the Phase-2a identity gate)."""
+    and the model reproduces the w6/act-FP32 anchor bit-for-bit (the Phase-2a identity check)."""
     enable_weight_quantization(weight_bits)
     enable_activation_quantization(act_bits)
     return FullRCNNModel(*args, **kwargs)
