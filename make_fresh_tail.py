@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Created: 2026-07-13
+# Last modified: 2026-07-16
 """Generate a FRESH, disjoint 200k test tail for the QAT Pareto (Step 2 gate 1).
 
 Disjoint by construction: samples with a NEW gen-seed (default 43) != the training
