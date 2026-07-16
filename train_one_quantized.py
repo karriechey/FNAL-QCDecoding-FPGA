@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
-"""Train ONE QAT point: (d,p,seed,n_train,weight_bits) on a DISJOINT tail.
+# Created: 2026-07-13
+# Last modified: 2026-07-16
+"""Train ONE quantization-aware-training (QAT) point on a DISJOINT evaluation tail.
 
-Path B, Experiment 1 per-job unit. Mirrors train_one.py's recipe exactly (the reference architecture's
-LR schedule, Adam, BCE, 50 epochs, batch 10k) but builds the model via
-CNNModel_quantized.build_quantized_rcnn(weight_bits, ...) so weights are quantized in
-place. weight_bits None/>=32 => FP32 baseline (no-op quantizer).
+A single point is (d, p, seed, n_train, weight_bits, act_bits). Mirrors train_one.py's
+recipe exactly (the reference architecture's LR schedule, Adam, binary cross-entropy, 50 epochs, batch 10k)
+but builds the model via CNNModel_quantized.build_quantized_rcnn(weight_bits, act_bits=...),
+so the quantizers are live in the forward pass during training (true QAT, not
+post-training quantization).
+
+  weight_bits None/>=32  => full-precision weights (baseline).
+  act_bits    None/>=32  => full-precision activations. This is the Phase-1 weights-only
+                           setting and reproduces the weight-only anchor exactly.
+  act_bits    = B        => Phase 2a: quantize the bounded activation tensors at word length
+                           B (per-class integer bits fixed inside ActQuant), x-like tensors
+                           left float. Sweep B to measure accuracy vs activation precision.
 
 Held-out integrity: the tail comes from a SEPARATE --test-pool (fresh shots, disjoint
 by construction) when given; otherwise from the SAME pool with the train_one disjoint
@@ -29,7 +39,10 @@ def run():
     ap.add_argument('--n-train', type=int, required=True)
     ap.add_argument('--n-test', type=int, required=True)
     ap.add_argument('--weight-bits', type=int, default=None,
-                    help='QAT weight bit-width; None or >=32 => FP32 baseline.')
+                    help='QAT weight bit-width; None or >=32 => full-precision weights.')
+    ap.add_argument('--act-bits', type=int, default=None,
+                    help='Phase 2a activation word length B; None or >=32 => full-precision '
+                         'activations (weights-only / Phase-1 setting).')
     ap.add_argument('--epochs', type=int, default=50)
     ap.add_argument('--batch-size', type=int, default=10000)
     ap.add_argument('--val-split', type=float, default=0.2)
@@ -90,11 +103,14 @@ def run():
     Xtr, Ytr = [tr_db[0:ntr], tr_de[0:ntr]], tr_fl[0:ntr]
 
     set_seeds(seed)
-    # QAT: build the model with quantization already in the graph, then train it.
-    # build_quantized_rcnn(wbits, ...) installs quantized_bits(wbits,1) at every weight's point of use, so the forward pass is quantized before training
+    abits = args.act_bits
+    # QAT: build the model with the quantizers already installed in the graph, then train it.
+    # build_quantized_rcnn installs quantized_bits(wbits,1) at every weight's point of use AND,
+    # when act_bits is set, the per-class activation quantizers at the bounded activation sites,
+    # so the whole forward pass is quantized before training (true QAT).
     model = build_quantized_rcnn(
         wbits, 'ZL', d, k, r, [args.hidden for _ in range(args.hidden_layers)],
-        npol=args.npol, stop_round=None, has_nonuniform_response=False,
+        act_bits=abits, npol=args.npol, stop_round=None, has_nonuniform_response=False,
         do_all_data_qubits=False, return_all_rounds=False)
     # Configure the quantized model for training.
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
@@ -128,20 +144,26 @@ def run():
     pL = float((truth != (pred > 0.5).astype(bt)).mean())
     base_rate = float(truth.mean())
     mwpm = lookup_mwpm(args.data_dir, d, p, r)
-    eff_bits = 32 if (wbits is None or wbits >= 32) else wbits
+    eff_bits = 32 if (wbits is None or wbits >= 32) else wbits            # effective weight bits
+    eff_act = 32 if (abits is None or abits >= 32) else abits             # effective activation bits
+    # size_kb reflects WEIGHT storage only (activations are not stored parameters); keep the
+    # Phase-1 definition so weight-only rows stay comparable.
     size_kb = round(n_params * eff_bits / 8 / 1024, 2)
 
     os.makedirs(args.out_dir, exist_ok=True)
-    tag = f'rcnn_d{d}_p{p:.3f}_r{r}_w{eff_bits}_seed{seed}_ntr{ntr}'
+    # Only append the activation-bits suffix when activations are actually quantized, so weight-only
+    # (act_bits=None) runs keep the exact Phase-1 tag/filename and do not appear renamed.
+    a_suffix = '' if eff_act == 32 else f'_a{eff_act}'
+    tag = f'rcnn_d{d}_p{p:.3f}_r{r}_w{eff_bits}{a_suffix}_seed{seed}_ntr{ntr}'
     fields = ['architecture', 'd', 'p', 'rounds', 'kernel', 'seed', 'n_train', 'n_test',
-              'weight_bits', 'size_kb', 'epochs', 'epochs_ran', 'batch_size', 'n_params',
+              'weight_bits', 'act_bits', 'size_kb', 'epochs', 'epochs_ran', 'batch_size', 'n_params',
               'p_L', 'mwpm_p_L', 'base_rate', 'beats_base_rate', 'best_val_loss',
               'train_time_s', 'test_pool']
     with open(os.path.join(args.out_dir, tag + '.csv'), 'w', newline='') as cf:
         w = csv.DictWriter(cf, fieldnames=fields); w.writeheader()
         w.writerow(dict(
             architecture='FullRCNNModel_QAT', d=d, p=p, rounds=r, kernel=k, seed=seed,
-            n_train=ntr, n_test=nte, weight_bits=eff_bits, size_kb=size_kb,
+            n_train=ntr, n_test=nte, weight_bits=eff_bits, act_bits=eff_act, size_kb=size_kb,
             epochs=args.epochs, epochs_ran=epochs_ran, batch_size=args.batch_size,
             n_params=n_params, p_L=round(pL, 6),
             mwpm_p_L=('' if mwpm is None else round(mwpm, 6)), base_rate=round(base_rate, 5),
