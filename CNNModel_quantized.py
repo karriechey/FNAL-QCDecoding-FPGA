@@ -379,8 +379,15 @@ def _statedecoder_call(self, inputs):
 
 
 def _make_output_quant_call(orig, cls):
-    """Wrap a layer's call so its OUTPUT is activation-quantized (no-op when disabled)."""
+    """Wrap a layer's call so its OUTPUT is activation-quantized (no-op when disabled).
+
+    The wrapper advertises **kw, so Keras' Layer.__call__ passes `training` (and possibly `mask`)
+    into it. The wrapped embedder call() methods take only their input tensor and do not accept
+    those kwargs, so we drop them before forwarding. (The originals ignore training/mask anyway --
+    they have no training-specific behaviour.)"""
     def call(self, *a, **kw):
+        kw.pop('training', None)
+        kw.pop('mask', None)
         return ActQuant.qa(orig(self, *a, **kw), cls)
     return call
 
