@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Created: 2026-07-13
-# Last modified: 2026-07-16
+# Last modified: 2026-07-19
 """Train ONE quantization-aware-training (QAT) point on a DISJOINT evaluation tail.
 
 A single point is (d, p, seed, n_train, weight_bits, act_bits). Mirrors train_one.py's
@@ -63,7 +63,26 @@ def run():
     args = ap.parse_args()
 
     os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+    # Deterministic GPU ops. Without these, GPU floating-point reductions accumulate in a
+    # nondeterministic order, so the SAME seed can draw a smooth run or, at large data volume
+    # (10M shots = ~1000 steps/epoch under the reference architecture's high early LR of 0.01), hit a val_loss spike
+    # around epoch 3 that the fixed LR decay never fully recovers from. Diagnosed 2026-07-19: the
+    # anchor drew three spike-free runs by luck; the Phase-2a control reruns spiked on seeds 1,2
+    # (val_loss to 0.18/0.37, p_L landing ~0.050/0.057 instead of ~0.047/0.046). Setting these two
+    # flags makes training bit-reproducible: the spike disappears AND every (seed, config) gives one
+    # canonical p_L with no run-to-run swing. This is the fix -- NOT gradient clipping, which would
+    # have papered over the nondeterminism and split the recipe from the Phase-1 anchor. Set before
+    # importing TensorFlow so the deterministic kernels are selected at import time.
+    os.environ.setdefault('TF_DETERMINISTIC_OPS', '1')
+    os.environ.setdefault('TF_CUDNN_DETERMINISTIC', '1')
     import tensorflow as tf
+    # Hard version guard: Keras 3 (TF >= 2.16) rebuilds the reference architecture's custom Layer/add_weight subclasses
+    # through a different construction path and trains unstably while still printing plausible loss
+    # curves. TF is pinned at 2.15.x (Keras 2); fail loudly rather than silently produce a bad run
+    # if launched from the wrong environment (bare shell had 2.16.2 during the 2026-07-19 diagnosis).
+    assert tf.__version__.startswith('2.15'), (
+        f'need TF 2.15.x (Keras 2) -- Keras 3 breaks the custom layers; got TF {tf.__version__}. '
+        f'Activate the pinned .venv.')
     if args.cpu:
         tf.config.set_visible_devices([], 'GPU')
     print(f"[qtrain] TF {tf.__version__}  GPUs: {tf.config.list_physical_devices('GPU')}", flush=True)
@@ -112,8 +131,14 @@ def run():
         wbits, 'ZL', d, k, r, [args.hidden for _ in range(args.hidden_layers)],
         act_bits=abits, npol=args.npol, stop_round=None, has_nonuniform_response=False,
         do_all_data_qubits=False, return_all_rounds=False)
-    # Configure the quantized model for training.
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    # Configure the quantized model for training. Plain Adam, exactly as the Phase-1 anchor was
+    # trained (the reference architecture's LR schedule, binary cross-entropy). No gradient clipping: the anchor drew
+    # three spike-free runs with plain Adam, so the recipe is not inherently unstable. The control
+    # reruns that spiked (seeds 1,2) reflect an as-yet-unexplained difference between the anchor's
+    # run environment and the current one; that cause is being diagnosed before any recipe change,
+    # rather than papering over it with clipping.
+    model.compile(optimizer=tf.keras.optimizers.Adam(),
+                  loss='binary_crossentropy', metrics=['accuracy'])
     # Run one tiny forward pass to force TensorFlow/Keras to build the model weights
     _ = model([Xtr[0][0:1], Xtr[1][0:1]])
 
