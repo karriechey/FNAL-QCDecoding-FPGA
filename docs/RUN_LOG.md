@@ -1,7 +1,7 @@
 # QAT weight/activation quantization — RUN LOG
 
-*Created: 2026-07-13 | Last modified: 2026-07-15*
-*Last verified against code: 45518e8, 2026-07-15*
+*Created: 2026-07-13 | Last modified: 2026-07-20*
+*Last verified against code: 072e010, 2026-07-20*
 
 Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml handoff,
 collaborator Giuseppe). One row per run: date, git SHA, command, host, result line.
@@ -173,3 +173,124 @@ Collate `collate_pareto.py` → `plots/rcnn_d5_r3_qat_pareto.png`, `out_q/`.
 
 Headline: 8-bit lossless, **6-bit is the knee** (37.8 KB, 5.3× smaller than FP32, beats MWPM).
 Sharp cliff 6→4. Variance blows up at low bits. Weights-only ceiling; Phase 2 adds activations.
+
+---
+
+## Phase 2a — activation-precision sweep (2026-07-19/20, DONE)
+
+Weights fixed at 6 bits (the Phase-1 knee); activation word length B swept over {32, 8, 6, 4},
+3 seeds, 10M training shots, fresh disjoint 200k tail. B=32 means activation quantization OFF and
+is the per-seed control. Driver `phase2a_sweep.py`, fanned across 3 EAF pods; collation
+`phase2a_collate.py`; paired tests `phase2a_mcnemar.py`.
+
+### Determinism fix (prerequisite, 2026-07-19)
+
+The first control reruns spiked on seeds 1 and 2 — val_loss jumping to 0.18 / 0.37 around epoch 3
+and never recovering, landing p_L ~0.050 / 0.057 against anchors of ~0.047 / 0.046 — on identical
+code, seed and recipe to Phase 1. Diagnosed by elimination: not the recipe (100k runs were smooth
+on both Mac-CPU and EAF-GPU), not the TF version (the spiking sweep logged TF 2.15.1, same as the
+anchor — the bare EAF shell's TF 2.16.2 / Keras 3 was never what the sweep used), not the device.
+The only remaining variable was scale: 10M shots is ~1000 steps/epoch versus 8 at 100k, so ~125×
+more chances for one bad step under the reference architecture's high early LR (0.01). Confirmed by rerunning seed 2
+at 10M with `TF_DETERMINISTIC_OPS=1` and `TF_CUDNN_DETERMINISTIC=1` — smooth, no epoch-3 spike.
+
+Cause: nondeterministic GPU/cuDNN floating-point reduction order, amplified at scale. The Phase-1
+anchor had simply drawn three spike-free runs. Both flags are now set in `train_one_quantized.py`
+before `import tensorflow`, alongside a hard `assert tf.__version__.startswith('2.15')` guard.
+`clipnorm=1.0` was tried during the diagnosis and **reverted**: it suppressed the symptom, left the
+cause in place, and would have split this recipe from the Phase-1 anchor's.
+
+Control gate — all three reproduce their Phase-1 anchors:
+
+```
+        control    anchor     delta
+seed 0  0.04659    0.046675   -0.0001
+seed 1  0.04731    0.047715   -0.0004
+seed 2  0.046565   0.045580   +0.0010     (was 0.05685 on the spiked run)
+```
+
+### Result: B=4 is infeasible by construction, not a measured accuracy limit
+
+All three B=4 seeds returned p_L = 0.28260 — exactly the tail's base rate — with val_loss pinned at
+0.5935 from epoch 1. The model emitted a constant and never trained. This is a fixed-point FORMAT
+failure, not a statement about 4-bit activations. The per-class integer widths leave negative
+fractional width at B=4: z-like is signed with I=4, so frac = 4−4−1 = −1, and the decoder ReLU is
+unsigned with I=6, so frac = 4−6 = −2 (representable values spaced 4 apart over [0,64), so every
+hidden activation below 2.0 rounds to zero). QKeras accepts this silently.
+
+**Report it as the integer-width floor, not as "4-bit activations fail."** Under the current width
+policy the minimum viable B is 6. Going lower requires retuning the integer widths first: the p99.9
+ReLU width (I=4) unlocks B=5, but z-like's I=4 follows from the architecture's ±12 clip and is not
+reducible without changing that bound.
+
+`ActQuant.set_bits()` now refuses any configuration with negative fractional width, naming the
+offending classes and the minimum viable B, and prints the resulting per-class ap_fixed format on
+every run. The threshold is frac < 0, not frac < 1: B=6 leaves the ReLU at frac = 0 (resolution
+1.0) and trained normally, so zero fractional width is warned about, not rejected.
+
+### Result: paired McNemar on B=8 and B=6
+
+`phase2a_collate.py`'s within-seed p_L differences are descriptive only. The two runs decode the
+SAME 200k shots, so the correct test is paired McNemar on the discordant shots, as in Phase 1.
+Aggregate differencing called B=8 "noise"; the paired test disagrees.
+
+```
+B vs its own seed's control          B vs MWPM (0.049405, decoded on this tail)
+       delta      net    p_exact            net    p_exact
+B=8 s0 +0.00198   -396   3.3e-08            +167   0.051
+B=8 s1 -0.00102   +204   3.1e-03            +623   7.4e-14
+B=8 s2 +0.00058   -115   0.103              +453   5.7e-08
+B=6 s0 +0.00146   -291   4.7e-05            +272   1.3e-03
+B=6 s1 +0.00209   -418   1.3e-08            +  1   1.00
+B=6 s2 +0.00109   -217   1.3e-03            +351   2.7e-05
+```
+
+**B=8: no systematic cost, but not because the differences are noise.** Two of the three seeds are
+individually significant — and in OPPOSITE directions (seed 0 favours the control, seed 1 favours
+B=8). A real per-run difference whose sign flips across seeds is training-run variation, not a
+precision penalty. The honest claim is "no consistent cost at B=8", supported by the sign flip,
+rather than "the difference is within noise."
+
+**B=6: a real, consistent cost of about +0.0015.** All three seeds favour the control, all three
+are significant, and the magnitudes agree (+0.0011 to +0.0021). This is the one place the sweep
+shows activation precision actually costing accuracy.
+
+**Versus MWPM at B=6 the margin becomes seed-dependent:** seeds 0 and 2 still beat MWPM
+(p = 1.3e-03, 2.7e-05), but seed 1 lands at p_L = 0.049400 against MWPM's 0.049405 — a net of one
+shot in 200k, a dead heat. So "6-bit weights AND 6-bit activations still beat MWPM" is not
+supportable as stated; at B=8 it holds on all three seeds.
+
+Note B=6 leaves the decoder ReLU with zero fractional bits (resolution 1.0 on a [0,64) tensor) and
+still costs only ~+0.0015 — a robustness result in its own right, and a concrete argument for
+rerunning B=6 with the p99.9 ReLU width (I=4, giving frac=2), which should recover part of that cost.
+
+The three seeds share one tail, so their tests are correlated. Read them as three consistent or
+inconsistent readings; do NOT Fisher-combine the p-values.
+
+### MWPM baseline provenance (verified 2026-07-20)
+
+The sweep CSVs' `mwpm_p_L` column reads 0.0451 and must be ignored: it comes from
+`train_one.lookup_mwpm()`, which reads `pools/mwpm_baseline.csv` keyed only on (d, p, rounds) and
+has no idea which tail is being evaluated. The 0.0518 seen elsewhere came from the same lookup.
+
+0.049405 is a decode, not a lookup — confirmed by reading the code rather than trusting the
+comment: `eval_on_tail.py --mcnemar` builds the 4-channel rotated_memory_z circuit, takes its
+detector error model, decodes these exact shots via `pymatching.Matching.decode_batch`, and
+overwrites the looked-up value with that result. Every row of `out_q_mcnemar/mcnemar_knee.csv` and
+`out_q/fp32_anchor.csv` carries 0.049405 from that path, and `phase2a_mcnemar.py` re-decodes it
+independently to the same value. This is the denominator of every "beats MWPM" claim in the paper.
+
+### Artifacts
+
+```
+out_q_phase2a/rcnn_d5_p0.010_r3_w6_a{32,8,6,4}_seed{0,1,2}_ntr10000000.{csv,history.json,weights.h5}
+out_q_phase2a/phase2a_mcnemar.csv     paired-test rows, both comparisons
+```
+
+### Open
+
+- Rerun B=6 with `ActQuant.set_relu_integer(4)` (p99.9 ReLU width) to test whether the +0.0015
+  cost is partly the zero-fractional-width ReLU rather than the word length itself.
+- A genuine low-B datapoint needs the integer-width policy retuned first; B=4 remains blocked by
+  z-like's ±12 clip.
+- Phase 4 (log-domain / LSE rewrite) still owns the x-like tensors, which are left FP32 throughout.

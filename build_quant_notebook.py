@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Created: 2026-07-14
-# Last modified: 2026-07-15
+# Last modified: 2026-07-20
 """Emit QUANTIZATION_EXPERIMENTS.ipynb -- a LIVE lab notebook for the FullRCNNModel
 quantization work (weight + activation, toward FPGA/hls4ml for Giuseppe).
 
@@ -51,10 +51,19 @@ import numpy as np, pandas as pd
 BASE = 'rcnn_threshold' if os.path.isdir('rcnn_threshold') else os.path.expanduser('~/rcnn_threshold')
 OUT_Q  = os.path.join(BASE, 'out_q')           # Step-2 Pareto CSVs
 OUT_MC = os.path.join(BASE, 'out_q_mcnemar')   # Phase 1 McNemar + Phase 3 JSON
+OUT_2A = os.path.join(BASE, 'out_q_phase2a')   # Phase 2a activation sweep + its paired tests
 pd.set_option('display.width', 160); pd.set_option('display.max_columns', 40)
 print('BASE :', BASE)
 print('out_q     :', OUT_Q, '->', len(glob.glob(OUT_Q+'/*.csv')), 'csv')
-print('out_q_mcnemar:', OUT_MC, '->', sorted(os.path.basename(f) for f in glob.glob(OUT_MC+'/*'))[:6])"""))
+print('out_q_mcnemar:', OUT_MC, '->', sorted(os.path.basename(f) for f in glob.glob(OUT_MC+'/*'))[:6])
+print('out_q_phase2a:', OUT_2A, '->', len(glob.glob(OUT_2A+'/*.csv')), 'csv')
+
+# The ONE true MWPM on the fresh 200k tail. Verified 2026-07-20 by reading the code, not the
+# comment: eval_on_tail.py --mcnemar decodes these exact shots with PyMatching and overwrites the
+# looked-up value. The sweep CSVs' mwpm_p_L column (0.0451) and the 0.0518 seen elsewhere both come
+# from train_one.lookup_mwpm(), keyed only on (d, p, rounds) -- it does not know which tail it is
+# being asked about. Never read the baseline out of a sweep CSV column.
+MWPM_FRESH_TAIL = 0.049405"""))
 
 cells.append(md("""## Phase 0 — implementation + local gates (DONE)
 
@@ -185,15 +194,198 @@ cd ~/QuantumDecoderQKeras
 .venv/bin/python profile_ranges.py --weights ~/rcnn_threshold/out_q_mcnemar/rcnn_d5_p0.010_r3_w6_seed2_ntr10000000.weights.h5 --expect-pl 0.045580
 ```"""))
 
+cells.append(md("""## Phase 2a — activation-precision sweep (DONE, n=3)
+
+Weights fixed at 6 bits (the Phase-1 knee); activation word length **B swept over {32, 8, 6, 4}**,
+3 seeds, 10M training shots, fresh disjoint 200k tail. `B=32` means activation quantization OFF —
+it is the per-seed **control**, and it must reproduce the Phase-1 w6/act-FP32 anchor.
+
+Driver `phase2a_sweep.py` (fanned across 3 EAF pods) → `phase2a_collate.py` (tables + figure) →
+`phase2a_mcnemar.py` (the paired tests).
+
+### Prerequisite: the determinism fix
+
+The first control reruns spiked on seeds 1 and 2 — val_loss jumping to 0.18 / 0.37 around epoch 3,
+landing p_L ~0.050 / 0.057 against anchors of ~0.047 / 0.046 — on identical code, seed and recipe
+to Phase 1. Diagnosed by elimination:
+
+- **not the recipe** — 100k runs were smooth on both Mac-CPU and EAF-GPU;
+- **not the TF version** — the spiking sweep logged TF 2.15.1, same as the anchor (the bare EAF
+  shell's TF 2.16.2 / Keras 3 was never what the sweep used);
+- **not the device** — both CPU and GPU were smooth at 100k;
+- **scale** was the only variable left: 10M shots is ~1000 steps/epoch vs 8 at 100k, so ~125× more
+  chances for one bad step under the reference architecture's high early LR (0.01). 100k structurally cannot reproduce it.
+
+Confirmed by rerunning seed 2 at 10M with the flags on: smooth, no epoch-3 spike. **Cause =
+nondeterministic GPU/cuDNN floating-point reduction order, amplified at scale**; the Phase-1 anchor
+had simply drawn three spike-free runs. `TF_DETERMINISTIC_OPS=1` + `TF_CUDNN_DETERMINISTIC=1` are
+now set in `train_one_quantized.py` *before* `import tensorflow`, with a hard
+`assert tf.__version__.startswith('2.15')` guard.
+
+`clipnorm=1.0` was tried during the diagnosis and **reverted** — it suppressed the symptom, left
+the cause in place, and would have split this recipe from the Phase-1 anchor's."""))
+
+cells.append(code("""# Control gate: each B=32 control must reproduce its Phase-1 anchor (w6 / float activations).
+ANCHOR = {0: 0.046675, 1: 0.047715, 2: 0.045580}   # from out_q_mcnemar/mcnemar_knee.csv, w6 rows
+
+def load_2a():
+    \"\"\"{(act_bits, seed): p_L} from the Phase-2a per-run CSVs.\"\"\"
+    out = {}
+    for f in glob.glob(os.path.join(OUT_2A, '*_ntr10000000.csv')):
+        r = pd.read_csv(f).iloc[0]
+        out[(int(r['act_bits']), int(r['seed']))] = float(r['p_L'])
+    return out
+
+d2a = load_2a()
+gate = pd.DataFrame([
+    {'seed': s, 'control_B32': d2a.get((32, s)), 'phase1_anchor': ANCHOR[s],
+     'delta': (d2a.get((32, s)) - ANCHOR[s]) if d2a.get((32, s)) is not None else None}
+    for s in sorted({s for (_, s) in d2a})])
+print('Control gate -- all three reproduce the anchor (seed 2 was 0.05685 on the spiked run):')
+print(gate.to_string(index=False))"""))
+
+cells.append(code("""# (1) p_L by activation width, and (2) the WITHIN-SEED cost: p_L(B) - p_L(that seed's control).
+# Within-seed differencing cancels each seed's own convergence level. NOTE this is DESCRIPTIVE
+# only -- the significance test is McNemar, below, and it does not agree with the naive reading.
+bits = sorted({b for (b, _) in d2a}, reverse=True)
+seeds = sorted({s for (_, s) in d2a})
+
+tbl = pd.DataFrame({f'seed{s}': [d2a.get((b, s)) for b in bits] for s in seeds}, index=bits)
+tbl.index.name = 'B'
+tbl['mean'] = tbl.mean(axis=1)
+tbl['xMWPM'] = tbl['mean'] / MWPM_FRESH_TAIL
+print('(1) p_L by activation word length B  (B=32 = control, activations off)')
+print(tbl.round(5).to_string(), '\\n')
+
+delta = pd.DataFrame({f'seed{s}': [(d2a.get((b, s)) - d2a[(32, s)]) if d2a.get((b, s)) is not None
+                                   else None for b in bits] for s in seeds}, index=bits)
+delta.index.name = 'B'
+delta['mean_delta'] = delta.mean(axis=1)
+print('(2) within-seed cost: p_L(B) - p_L(control)')
+print(delta.round(5).to_string())"""))
+
+cells.append(md("""### B=4 is an infeasible fixed-point format, **not** a measured precision limit
+
+All three B=4 seeds returned **p_L = 0.28260 — exactly the tail's base rate** — with val_loss
+pinned at 0.5935 from epoch 1. The model emitted a constant and never trained.
+
+The cause is arithmetic, not accuracy. The per-class integer widths leave **negative fractional
+width** at B=4 (fractional bits = B − I − sign):
+
+| class | I | signed | frac @ B=4 | frac @ B=6 | frac @ B=8 |
+|---|---|---|---|---|---|
+| z-like | 4 | yes | **−1** | 1 | 3 |
+| relu (decoder hidden) | 6 | no | **−2** | **0** | 2 |
+| embed | 2 | yes | 1 | 3 | 5 |
+| cφ | 0 | yes | 3 | 5 | 7 |
+| p/f | 0 | no | 4 | 6 | 8 |
+
+A negative fractional width means the representable values are spaced **more than 1.0 apart** —
+at frac = −2 the ReLU grid is multiples of 4 across [0, 64), so every hidden activation below 2.0
+rounds to zero. The network is destroyed before training starts, and **QKeras does not raise** on
+this; it silently returns a garbage quantizer.
+
+**So report the integer-width floor, not "4-bit activations fail."** Under the current policy the
+minimum viable B is 6. Going lower requires retuning the integer widths first: the p99.9 ReLU width
+(I=4) unlocks B=5, but z-like's I=4 follows from the architecture's own ±12 clip and is not
+reducible without changing that bound.
+
+`ActQuant.set_bits()` now **refuses** any configuration with negative fractional width, naming the
+offending classes and the minimum viable B, and prints the resulting per-class `ap_fixed` format on
+every run. The threshold is `frac < 0`, not `frac < 1`: **B=6 leaves the ReLU at frac = 0**
+(resolution 1.0 on a [0,64) tensor) **and trained normally**, costing only ~+0.0015 — so zero
+fractional width is warned about, not rejected. That B=6 works at all with an integer-only ReLU
+grid is a robustness result in its own right."""))
+
+cells.append(md("""### Paired McNemar — and why the naive reading was wrong
+
+The within-seed p_L differences above are **not** a significance test. Both runs decode the **same
+200k shots**, so each shot is a matched pair and the informative quantity is the discordant count
+(shots where exactly one of the two is right) — the same convention as Phase 1.
+
+Aggregate differencing called B=8 "noise" (deltas straddling zero, non-monotonic against B=6).
+The paired test disagrees, and changes the conclusion."""))
+
+cells.append(code("""# Paired tests: each quantized run vs its OWN seed's control, and vs MWPM, on the same shots.
+# Produced by phase2a_mcnemar.py, which rebuilds each checkpoint WITH its activation quantizers
+# (eval_on_tail.py has no activation support and would score these models with float activations).
+f2a = os.path.join(OUT_2A, 'phase2a_mcnemar.csv')
+if os.path.exists(f2a):
+    mc2 = pd.read_csv(f2a).sort_values(['act_bits', 'seed'], ascending=[False, True])
+    print('vs own control (net<0 = control wins):')
+    print(mc2[['act_bits','seed','p_L','control_p_L','delta_vs_control',
+               'ctrl_n_discordant','ctrl_p_exact']].to_string(index=False), '\\n')
+    print('vs MWPM (net>0 = RCNN wins):')
+    mc2['net_vs_mwpm'] = mc2['mwpm_q_only'] - mc2['mwpm_mwpm_only']
+    print(mc2[['act_bits','seed','p_L','mwpm_p_L','net_vs_mwpm',
+               'mwpm_n_discordant','mwpm_p_exact']].to_string(index=False))
+else:
+    print('phase2a_mcnemar.csv not found -- regenerate with:')
+    print('  python phase2a_mcnemar.py --dir', OUT_2A,
+          '--pool <pools>/data_d5_p0.010_r3_TAIL200k.npz --acts 8,6 --seeds 0,1,2 \\\\')
+    print('    --out-csv', f2a)"""))
+
+cells.append(md("""**B=8 — no *systematic* cost, but not because the differences are noise.**
+Two of the three seeds are individually significant **in opposite directions**: seed 0 favours the
+control (p = 3.3e-08), seed 1 favours B=8 (p = 3.1e-03), seed 2 is not significant (p = 0.10). A
+real per-run difference whose *sign flips across seeds* is training-run variation, not a precision
+penalty. The defensible claim is "no consistent cost at B=8", **supported by the sign flip** —
+not "the difference is within noise."
+
+**B=6 — a real, consistent cost of about +0.0015.** All three seeds favour the control, all three
+are significant, and the magnitudes agree (+0.0011 to +0.0021).
+
+**Versus MWPM the margin becomes width-dependent.** At B=8 every seed beats MWPM. At B=6, seeds 0
+and 2 still beat it (p = 1.3e-03, 2.7e-05) but **seed 1 lands at p_L = 0.049400 against MWPM's
+0.049405 — a net of one shot in 200k, a dead heat.** So *"6-bit weights AND 6-bit activations still
+beat MWPM"* is **not supportable as stated**; it holds at B=8 on all three seeds.
+
+⚠️ The three seeds share one 200k tail, so their tests are **correlated, not independent**. Read
+them as three consistent (or inconsistent) readings; do **not** Fisher-combine the p-values."""))
+
+cells.append(code("""# The figure. B=4 is excluded by default (--plot-exclude-bits): at 0.2826 it is ~6x every other
+# point, which flattens the 0.046-0.050 band where the result actually lives and reads as "4-bit
+# fails" -- the one conclusion the data does not support. The figure states the omission on itself.
+from IPython.display import Image
+p = 'plots/phase2a_activation_sweep.png'
+if not os.path.exists(p):
+    print('regenerate with:  python phase2a_collate.py --dir', OUT_2A)
+Image(p) if os.path.exists(p) else None"""))
+
+cells.append(md("""### Where this leaves the FPGA path (the Giuseppe / Phase-4 conversation)
+
+1. **Activation quantization works.** Bounded tensors at 8 bits cost nothing systematic; 6 bits
+   cost a small consistent +0.0015 and are marginal against MWPM on one seed.
+2. **B=4 is not a measurement** — it is a floor imposed by the architecture's own clip bounds
+   (z-like ±12 → I=4), now rejected up front by a guard rather than burning a multi-hour run.
+3. **This is still not a synthesizable model.** The **x-like** tensors remain FP32 throughout:
+   every `CNNKernelWithEmbedding` / `CNNStateCorrelator` output has `frac@B6 < 0` with implied
+   I up to 17 (correlator #2, seed 1: max 1.2e5 — ~10 decades). No `ap_fixed` at any sane width.
+
+That last point is Phase 4, and the **phase-matrix result above is why it is hard**, not merely
+tedious: the n=3 recurrence correlators have an indefinite phase matrix ~95% of the time, so the
+log-domain combination genuinely goes ≤0 and *plain* LSE is unavailable. The remedy is a **choice**
+(signed-LSE, or constrain c_φ to PSD via a Gram parameterization and retrain, which may cost
+accuracy since the model is actively using the indefinite region) — and it is **not decided**.
+
+**Open:**
+- Rerun B=6 with `ActQuant.set_relu_integer(4)` (p99.9 ReLU width, frac 0 → 2) to test how much of
+  the +0.0015 is the zero-fractional-width ReLU rather than the word length itself.
+- A genuine low-B datapoint needs the integer-width policy retuned; B=4 stays blocked by z-like.
+- Phase 4 owns the x-like tensors. Decide signed-LSE vs Gram-constrained c_φ **with the collaborator**."""))
+
 cells.append(md("""## Provenance & status
 
 - **Ledger:** `docs/RUN_LOG.md` (fixed substrate + every phase + git SHAs).
 - **Branch:** `quantization-pareto` (local only — not pushed; RCNN repo reorg pending).
 - **Files:** `CNNModel_quantized.py`, `train_one_quantized.py`, `sweep_quantized.py`,
   `collate_pareto.py`, `make_fresh_tail.py`, `eval_on_tail.py`, `phase1_mcnemar.py`,
-  `profile_ranges.py`, `docs/RUN_LOG.md`, this notebook + `build_quant_notebook.py`.
+  `profile_ranges.py`, `phase2a_sweep.py`, `phase2a_collate.py`, `phase2a_mcnemar.py`,
+  `docs/RUN_LOG.md`, this notebook + `build_quant_notebook.py`.
 
-**Open:** run Phase 3 on 3 seeds → read design → implement `ActQuant` + Phase 2 sweep."""))
+**Open:** Phase 0–3 and Phase 2a are DONE. Next: rerun B=6 with the p99.9 ReLU width
+(`ActQuant.set_relu_integer(4)`), then Phase 4 (log-domain / LSE) for the x-like tensors —
+which needs the signed-LSE vs Gram-constrained-c_φ decision made with the collaborator."""))
 
 cells.append(code("""# git provenance for this work (run on the machine with the repo)
 # !git log --oneline -20 -- CNNModel_quantized.py train_one_quantized.py sweep_quantized.py \\

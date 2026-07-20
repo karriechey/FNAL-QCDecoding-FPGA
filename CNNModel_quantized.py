@@ -1,5 +1,5 @@
 # Created: 2026-07-12
-# Last modified: 2026-07-16
+# Last modified: 2026-07-20
 """Weight quantization for the reference architecture's FullRCNNModel -- modified version of CNNModel.py.
 
 Note
@@ -148,13 +148,98 @@ class ActQuant:
     _quantizers = {}
 
     @staticmethod
+    def _fractional_width(bits, I, kneg, is_relu):
+        """Fractional bits left after the sign and integer fields are taken out of a B-bit word.
+
+        quantized_relu(B, I) is unsigned: frac = B - I. quantized_bits(B, I, keep_negative) spends
+        one bit on the sign when keep_negative: frac = B - I - 1. A class needs frac >= 1 to carry
+        ANY sub-integer resolution; frac <= 0 means the representable values are spaced 2^-frac
+        apart (frac=-2 => steps of 4), which silently destroys the tensor.
+        """
+        return bits - I - (1 if (kneg and not is_relu) else 0)
+
+    # Fractional-width thresholds, calibrated against observed Phase-2a runs rather than assumed:
+    #   frac <  0  FATAL. Grid spacing is 2^-frac >= 2, coarser than the unit. Observed at B=4
+    #              (zlike frac=-1, relu frac=-2): all three seeds collapsed to a constant predictor.
+    #   frac == 0  ALLOWED, warned. Grid spacing is exactly 1.0 -- coarse, but still a valid integer
+    #              grid. Observed at B=6 (relu frac=0): trained normally and cost only ~+0.0015 p_L
+    #              vs its own control. So this is NOT a failure condition; refusing it would reject
+    #              a configuration that demonstrably works.
+    _FRAC_FATAL_BELOW = 0
+
+    @staticmethod
     def set_bits(bits):
+        """Install the per-class activation quantizers for word length `bits`.
+
+        Guarded: QKeras accepts quantized_bits/quantized_relu with a NEGATIVE fractional width
+        without raising, and silently returns a quantizer whose representable grid is coarser than
+        1.0. That is not a low-precision model -- it is a destroyed one. It happened for real in the
+        Phase-2a B=4 runs (2026-07-19): zlike has I=4 signed => frac = 4-4-1 = -1, and the decoder
+        ReLU has I=6 unsigned => frac = 4-6 = -2 (values spaced 4 apart over [0,64), so every hidden
+        activation below 2.0 rounded to zero). All three seeds trained for hours, never moved off
+        val_loss 0.5935, and landed at p_L = 0.2826 = exactly the tail's base rate -- a constant
+        predictor. That result is a fixed-point FORMAT artifact, not a statement about whether the
+        decoder tolerates 4-bit activations, and reporting it as the latter would be wrong.
+
+        So: refuse to build an infeasible configuration, and say which class failed and what the
+        minimum viable B is, rather than burning another multi-hour run to produce garbage. The
+        binding constraint is the widest integer field: B_min = max over classes of (I + sign).
+        Lowering it requires retuning the integer widths (see set_relu_integer for the ReLU p99.9
+        path); zlike's I=4 comes from the architecture's +/-12 clip and is not freely reducible.
+
+        The cutoff is frac < 0, not frac < 1: B=6 leaves the decoder ReLU with frac=0 (resolution
+        1.0) and still trained normally, so a zero fractional width is warned about, not rejected.
+        """
         ActQuant._bits = None if (bits is None or bits >= 32) else bits
         ActQuant._quantizers = {}
-        if ActQuant._bits is not None:
-            for cls, (I, kneg, is_relu) in ActQuant._CLASSES.items():
-                ActQuant._quantizers[cls] = (quantized_relu(ActQuant._bits, I) if is_relu
-                                             else quantized_bits(ActQuant._bits, I, keep_negative=kneg))
+        if ActQuant._bits is None:
+            return
+
+        # Validate every class BEFORE constructing any quantizer, so the error names all offenders.
+        bad, tight = [], []
+        for cls, (I, kneg, is_relu) in ActQuant._CLASSES.items():
+            frac = ActQuant._fractional_width(ActQuant._bits, I, kneg, is_relu)
+            sign = 1 if (kneg and not is_relu) else 0
+            min_B = I + sign            # smallest B giving this class frac >= 0
+            if frac < ActQuant._FRAC_FATAL_BELOW:
+                bad.append((cls, I, sign, frac, min_B))
+            elif frac == 0:
+                tight.append(cls)
+        if bad:
+            b_min = max(m for (_, _, _, _, m) in bad)
+            detail = '; '.join(
+                f'{cls} (integer={I}, sign={sign}) has fractional width {frac} '
+                f'-- needs B >= {m}'
+                for (cls, I, sign, frac, m) in bad)
+            raise ValueError(
+                f'activation word length B={ActQuant._bits} is infeasible for '
+                f'{len(bad)} class(es): {detail}. Minimum viable B for this integer-width '
+                f'policy is {b_min}. A negative fractional width means the representable values '
+                f'are spaced more than 1.0 apart, which drives the model to a constant predictor '
+                f'(observed at B=4: p_L = 0.2826 = the tail base rate, on all three seeds). '
+                f'To go below B={b_min}, retune the per-class integer widths first '
+                f'(e.g. ActQuant.set_relu_integer(4) for the p99.9 ReLU width).')
+        if tight:
+            print(f'[actquant] WARNING: at B={ActQuant._bits} these classes have ZERO fractional '
+                  f'bits (resolution 1.0, integer-valued grid): {", ".join(sorted(tight))}. '
+                  f'Representable but coarse -- B=6 ran this way and cost ~+0.0015 p_L. '
+                  f'Tightening the integer widths would buy fractional precision here.', flush=True)
+
+        for cls, (I, kneg, is_relu) in ActQuant._CLASSES.items():
+            ActQuant._quantizers[cls] = (quantized_relu(ActQuant._bits, I) if is_relu
+                                         else quantized_bits(ActQuant._bits, I, keep_negative=kneg))
+
+        # Print the resulting fixed-point format for every class. Makes the actual arithmetic
+        # visible in each run's log instead of implicit in a table two files away -- if a run
+        # later looks wrong, the format it used is right there at the top of its own output.
+        rows = []
+        for cls, (I, kneg, is_relu) in sorted(ActQuant._CLASSES.items()):
+            sign = 1 if (kneg and not is_relu) else 0
+            frac = ActQuant._fractional_width(ActQuant._bits, I, kneg, is_relu)
+            # ap_fixed<W, I> is sign-inclusive on the integer field, hence I + sign.
+            rows.append(f'{cls}=ap_{"u" if not sign else ""}fixed<{ActQuant._bits},'
+                        f'{I + sign}>(frac={frac})')
+        print(f'[actquant] B={ActQuant._bits}  ' + '  '.join(rows), flush=True)
 
     @staticmethod
     def set_relu_integer(I):
