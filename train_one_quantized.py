@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Created: 2026-07-13
-# Last modified: 2026-07-19
+# Last modified: 2026-07-20
 """Train ONE quantization-aware-training (QAT) point on a DISJOINT evaluation tail.
 
 A single point is (d, p, seed, n_train, weight_bits, act_bits). Mirrors train_one.py's
@@ -132,11 +132,14 @@ def run():
         act_bits=abits, npol=args.npol, stop_round=None, has_nonuniform_response=False,
         do_all_data_qubits=False, return_all_rounds=False)
     # Configure the quantized model for training. Plain Adam, exactly as the Phase-1 anchor was
-    # trained (the reference architecture's LR schedule, binary cross-entropy). No gradient clipping: the anchor drew
-    # three spike-free runs with plain Adam, so the recipe is not inherently unstable. The control
-    # reruns that spiked (seeds 1,2) reflect an as-yet-unexplained difference between the anchor's
-    # run environment and the current one; that cause is being diagnosed before any recipe change,
-    # rather than papering over it with clipping.
+    # trained (the reference architecture's LR schedule, binary cross-entropy). No gradient clipping: the recipe is
+    # not unstable, and the spike that once suggested otherwise is now explained. The Phase-2a
+    # control reruns that blew up on seeds 1,2 were nondeterministic GPU reduction order amplified
+    # at 10M scale, fixed by the TF_DETERMINISTIC_OPS / TF_CUDNN_DETERMINISTIC flags set above --
+    # see the header comment there. clipnorm=1.0 was tried during that diagnosis and REVERTED: it
+    # suppressed the symptom while leaving the cause in place, and it would have split this recipe
+    # from the Phase-1 anchor's. With determinism on, all three controls reproduce the anchor
+    # (0.04659 / 0.04731 / 0.046565 vs 0.046675 / 0.047715 / 0.045580).
     model.compile(optimizer=tf.keras.optimizers.Adam(),
                   loss='binary_crossentropy', metrics=['accuracy'])
     # Run one tiny forward pass to force TensorFlow/Keras to build the model weights
