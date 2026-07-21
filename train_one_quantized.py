@@ -43,6 +43,10 @@ def run():
     ap.add_argument('--act-bits', type=int, default=None,
                     help='Phase 2a activation word length B; None or >=32 => full-precision '
                          'activations (weights-only / Phase-1 setting).')
+    ap.add_argument('--relu-integer', type=int, default=None,
+                    help='override the decoder-ReLU integer width (default abs-max I=6). Set 5 to '
+                         'use the profiled p99.9 width, which gives frac=1 at B=6 instead of the '
+                         'I=6 ReLU frac=0. Only meaningful with --act-bits set.')
     ap.add_argument('--epochs', type=int, default=50)
     ap.add_argument('--batch-size', type=int, default=10000)
     ap.add_argument('--val-split', type=float, default=0.2)
@@ -123,14 +127,16 @@ def run():
 
     set_seeds(seed)
     abits = args.act_bits
+    relu_I = args.relu_integer
     # QAT: build the model with the quantizers already installed in the graph, then train it.
     # build_quantized_rcnn installs quantized_bits(wbits,1) at every weight's point of use AND,
     # when act_bits is set, the per-class activation quantizers at the bounded activation sites,
-    # so the whole forward pass is quantized before training (true QAT).
+    # so the whole forward pass is quantized before training (true QAT). relu_integer, when given,
+    # retunes just the decoder-ReLU integer width before the quantizers are built.
     model = build_quantized_rcnn(
         wbits, 'ZL', d, k, r, [args.hidden for _ in range(args.hidden_layers)],
-        act_bits=abits, npol=args.npol, stop_round=None, has_nonuniform_response=False,
-        do_all_data_qubits=False, return_all_rounds=False)
+        act_bits=abits, relu_integer=relu_I, npol=args.npol, stop_round=None,
+        has_nonuniform_response=False, do_all_data_qubits=False, return_all_rounds=False)
     # Configure the quantized model for training. Plain Adam, exactly as the Phase-1 anchor was
     # trained (the reference architecture's LR schedule, binary cross-entropy). No gradient clipping: the recipe is
     # not unstable, and the spike that once suggested otherwise is now explained. The Phase-2a
@@ -185,15 +191,20 @@ def run():
     # the exact Phase-1 tag/filename so they do not appear renamed.
     a_suffix = f'_a{eff_act}' if abits is not None else ''
     tag = f'rcnn_d{d}_p{p:.3f}_r{r}_w{eff_bits}{a_suffix}_seed{seed}_ntr{ntr}'
+    # relu_integer records the decoder-ReLU integer width actually used (default abs-max 6, or the
+    # profiled 5). Kept as its own column so a retuned run is self-describing and never confused
+    # with an abs-max run of the same act_bits.
     fields = ['architecture', 'd', 'p', 'rounds', 'kernel', 'seed', 'n_train', 'n_test',
-              'weight_bits', 'act_bits', 'size_kb', 'epochs', 'epochs_ran', 'batch_size', 'n_params',
-              'p_L', 'mwpm_p_L', 'base_rate', 'beats_base_rate', 'best_val_loss',
-              'train_time_s', 'test_pool']
+              'weight_bits', 'act_bits', 'relu_integer', 'size_kb', 'epochs', 'epochs_ran',
+              'batch_size', 'n_params', 'p_L', 'mwpm_p_L', 'base_rate', 'beats_base_rate',
+              'best_val_loss', 'train_time_s', 'test_pool']
     with open(os.path.join(args.out_dir, tag + '.csv'), 'w', newline='') as cf:
         w = csv.DictWriter(cf, fieldnames=fields); w.writeheader()
         w.writerow(dict(
             architecture='FullRCNNModel_QAT', d=d, p=p, rounds=r, kernel=k, seed=seed,
-            n_train=ntr, n_test=nte, weight_bits=eff_bits, act_bits=eff_act, size_kb=size_kb,
+            n_train=ntr, n_test=nte, weight_bits=eff_bits, act_bits=eff_act,
+            relu_integer=(relu_I if (abits is not None and relu_I is not None) else 6),
+            size_kb=size_kb,
             epochs=args.epochs, epochs_ran=epochs_ran, batch_size=args.batch_size,
             n_params=n_params, p_L=round(pL, 6),
             mwpm_p_L=('' if mwpm is None else round(mwpm, 6)), base_rate=round(base_rate, 5),

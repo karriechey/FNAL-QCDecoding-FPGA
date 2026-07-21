@@ -1,7 +1,7 @@
 # QAT weight/activation quantization — RUN LOG
 
-*Created: 2026-07-13 | Last modified: 2026-07-20*
-*Last verified against code: 072e010, 2026-07-20*
+*Created: 2026-07-13 | Last modified: 2026-07-21*
+*Last verified against code: 8a21662, 2026-07-21*
 
 Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml handoff,
 collaborator Giuseppe). One row per run: date, git SHA, command, host, result line.
@@ -289,8 +289,51 @@ out_q_phase2a/phase2a_mcnemar.csv     paired-test rows, both comparisons
 
 ### Open
 
-- Rerun B=6 with `ActQuant.set_relu_integer(4)` (p99.9 ReLU width) to test whether the +0.0015
-  cost is partly the zero-fractional-width ReLU rather than the word length itself.
+- ~~Rerun B=6 with the p99.9 ReLU width to test whether the +0.0015 cost is the zero-fractional-
+  width ReLU.~~ DONE 2026-07-21 (I=5) -- hypothesis rejected, see the retune subsection below.
 - A genuine low-B datapoint needs the integer-width policy retuned first; B=4 remains blocked by
   z-like's ±12 clip.
 - Phase 4 (log-domain / LSE rewrite) still owns the x-like tensors, which are left FP32 throughout.
+
+---
+
+## Phase 2a — B=6 ReLU-width retune (2026-07-21, DONE, negative result)
+
+**Hypothesis.** The ~+0.0015 logical-error-rate cost at activation B=6 was caused primarily by the
+decoder ReLU having zero fractional bits under the abs-max format I=6, F=0.
+
+**Test.** Retrained the B=6 models for seeds 0, 1, and 2 with the shared ReLU integer width reduced
+to I=5, giving F=1, while leaving all other training and quantization settings unchanged. Wired via
+`--relu-integer 5` (`train_one_quantized.py` -> `build_quantized_rcnn(relu_integer=...)` ->
+`ActQuant.set_relu_integer`), written to a separate `out_q_phase2a_relu5/` dir with the three act32
+controls copied in. The `relu_integer` value is recorded in a new CSV column; the `[actquant]` log
+line confirmed `relu=ap_ufixed<6,5>(frac=1)` with no zero-fractional-width warning. Paired McNemar
+via `phase2a_mcnemar.py --relu-integer 5` (the re-eval MUST rebuild with the same width, or retuned
+weights load into the wrong-format graph).
+
+**Result.** The mean cost relative to each seed's act32 control changed from +0.00154 to +0.00176.
+Individual seeds moved in mixed directions, with no consistent improvement:
+
+```
+        abs-max I=6      retuned I=5     paired vs own control (retuned)
+seed 0  +0.00142         +0.00330        p_exact 4.8e-19   (worse)
+seed 1  +0.00205         +0.00069        p_exact 5.5e-02   (better)
+seed 2  +0.00109         +0.00128        p_exact 3.2e-04   (~same)
+mean    +0.00154         +0.00176
+```
+
+Retuned per-seed p_L: 0.049890 / 0.047995 / 0.047845 (differ from the abs-max runs, so the retune
+took effect -- not a no-op). Versus MWPM (0.049405): seed 0 landed at 0.049890, a dead heat
+(p_exact 0.26) -- i.e. on one seed the retune pushed slightly OVER MWPM; seeds 1 and 2 still beat it
+(p_exact 7.9e-4, 2.1e-4).
+
+**Conclusion.** No improvement from the ReLU retune was detectable above run-to-run variation. The
+zero-fractional-width ReLU is therefore not supported as the dominant cause of the B=6 degradation.
+Because I=5 provided no observed benefit and reduced representable range, the safer I=6 format is
+retained. The specific activation class or site responsible for the B=6 cost remains unidentified.
+Effects smaller than approximately 1e-3 cannot be resolved reliably with the current independent
+n=3 design (each point is a fresh training run, so seed scatter ~0.001 is baked into any abs-max vs
+retuned comparison).
+
+**Artifacts:** `out_q_phase2a_relu5/rcnn_d5_p0.010_r3_w6_a6_seed{0,1,2}_ntr10000000.{csv,history.json,weights.h5}`
++ the three copied `_a32_` controls + `phase2a_mcnemar_relu5.csv`.

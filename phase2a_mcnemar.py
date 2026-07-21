@@ -110,6 +110,11 @@ def main():
     # guard firing.
     ap.add_argument('--acts', default='8,6', help='comma-separated activation widths to test')
     ap.add_argument('--seeds', default='0,1,2', help='comma-separated seeds')
+    ap.add_argument('--relu-integer', type=int, default=None,
+                    help='decoder-ReLU integer width the QUANTIZED checkpoints were trained with '
+                         '(default abs-max I=6). Set 5 for the retuned p99.9 runs. MUST match the '
+                         'training value, or retuned weights load into the wrong-format graph and '
+                         'predict garbage. The control (act off) ignores it.')
     ap.add_argument('--out-csv', default=None, help='append per-(B,seed) rows here')
     ap.add_argument('--batch-size', type=int, default=10000)
     ap.add_argument('--cpu', action='store_true')
@@ -184,10 +189,14 @@ def main():
         if not os.path.exists(w):
             return None
         abits = None if act_bits >= 32 else act_bits
+        # relu_integer must match how the checkpoint was trained (default abs-max I=6), else the
+        # weights load into a different-format ReLU and predict garbage. The control (abits=None)
+        # has no activation quantizers, so the width is irrelevant there.
+        relu_I = args.relu_integer if abits is not None else None
         model = build_quantized_rcnn(
             WEIGHT_BITS, 'ZL', D, KERNEL, ROUNDS, [HIDDEN for _ in range(HIDDEN_LAYERS)],
-            act_bits=abits, npol=NPOL, stop_round=None, has_nonuniform_response=False,
-            do_all_data_qubits=False, return_all_rounds=False)
+            act_bits=abits, relu_integer=relu_I, npol=NPOL, stop_round=None,
+            has_nonuniform_response=False, do_all_data_qubits=False, return_all_rounds=False)
         _ = model([Xte[0][0:1], Xte[1][0:1]])          # force build before load_weights
         model.load_weights(w)
         pred = model.predict(Xte, batch_size=args.batch_size, verbose=0)

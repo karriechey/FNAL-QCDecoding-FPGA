@@ -26,8 +26,7 @@ methods (standard QDense substitution can't reach the reference architecture's h
 tensors). `CNNModel.py` stays byte-for-byte pristine; all quantization lives in
 `CNNModel_quantized.py`.
 
-This notebook is **live**: cells load the result files from disk and rebuild every number,
-so it stays honest. The authoritative ledger is `docs/RUN_LOG.md`; this is the runnable view.
+This notebook is **live**: cells load the result files from disk and rebuild every number. The authoritative ledger is `docs/RUN_LOG.md`; this is the runnable view.
 
 > Run on EAF (`.venv/bin/python` kernel) where `~/rcnn_threshold/` lives."""))
 
@@ -46,9 +45,23 @@ Contamination fix: the old 200k tail overlapped the 10M train set by 190k shots
 
 cells.append(code("""import os, glob, json
 import numpy as np, pandas as pd
-# Auto-detect: prefer the in-repo ./rcnn_threshold (data pulled from EAF into the repo),
-# fall back to ~/rcnn_threshold when running ON EAF. Works in both places.
-BASE = 'rcnn_threshold' if os.path.isdir('rcnn_threshold') else os.path.expanduser('~/rcnn_threshold')
+# Locate rcnn_threshold/ without depending on the working directory. Jupyter sets the CWD to the
+# notebook's OWN folder, so a bare './rcnn_threshold' test only works for a notebook sitting at the
+# repo root -- from analysis_notebooks/ it silently missed and fell through to ~/rcnn_threshold,
+# which on a laptop holds only pools/ and none of the out_q* result dirs. Walk up instead, then
+# fall back to $HOME (the EAF layout, where the results really do live under the home directory).
+def _find_base():
+    d = os.path.abspath(os.getcwd())
+    while True:
+        cand = os.path.join(d, 'rcnn_threshold')
+        if os.path.isdir(cand):
+            return cand
+        parent = os.path.dirname(d)
+        if parent == d:                       # hit the filesystem root
+            return os.path.expanduser('~/rcnn_threshold')
+        d = parent
+
+BASE = _find_base()
 OUT_Q  = os.path.join(BASE, 'out_q')           # Step-2 Pareto CSVs
 OUT_MC = os.path.join(BASE, 'out_q_mcnemar')   # Phase 1 McNemar + Phase 3 JSON
 OUT_2A = os.path.join(BASE, 'out_q_phase2a')   # Phase 2a activation sweep + its paired tests
@@ -108,7 +121,7 @@ Image(p) if p else print('pareto plot not found in repo; regenerate with collate
 
 cells.append(md("""**Headline.** 8-bit lossless (= FP32); **6-bit is the knee** (37.8 KB, 5.3× smaller,
 beats MWPM). Sharp cliff 6→4 (4-bit ~3.4σ worse); 2-bit collapses. Variance blows up at
-low bits. This is the **weights-only** ceiling — activations still FP32."""))
+low bits. This is the **weights-only** ceiling, activations still FP32."""))
 
 cells.append(md("""## Phase 1 — paired McNemar at the knee (DONE)
 
@@ -121,6 +134,52 @@ mc['bits'] = mc['weights'].str.extract(r'_w(\\d+)_').astype(int)
 mc['seed'] = mc['weights'].str.extract(r'seed(\\d+)_').astype(int)
 show = mc[['bits','seed','p_L','mwpm_p_L','ratio','rcnn_only','mwpm_only','net_rcnn_wins','p_exact']]
 show.sort_values(['bits','seed']).reset_index(drop=True)"""))
+
+cells.append(code("""import matplotlib.pyplot as plt
+
+# combine bits=32 (fp32 anchor, already has a McNemar row from the sweep's anchor step)
+# with bits=6,8 (this phase) into one table so the figure covers the whole knee
+mc_all = pd.concat([
+    fa.assign(bits=32, seed=fa['weights'].str.extract(r'seed(\\d+)_')[0].astype(int)),
+    mc,
+], ignore_index=True).drop_duplicates(['bits', 'seed'], keep='last')
+
+fig = plt.figure(figsize=(9, 7))
+gs = fig.add_gridspec(2, 3, height_ratios=[2, 1], hspace=0.5, wspace=0.35)
+
+# top: p_L vs bits, mean +/- std across seeds, MWPM reference line
+ax0 = fig.add_subplot(gs[0, :])
+ax0.errorbar(g.index, g['mean'], yerr=g['std'], marker='o', capsize=4,
+             color='tab:blue', label='RCNN p_L (mean +/- std, n=3 seeds)')
+if mwpm:
+    ax0.axhline(mwpm, color='tab:red', ls='--', label=f'MWPM p_L = {mwpm:.5f}')
+ax0.set_xlabel('weight bits'); ax0.set_ylabel('logical error rate p_L')
+ax0.set_title('RCNN vs MWPM across weight bit-width (d=5, r=3, fresh 200k-shot tail)')
+ax0.legend(); ax0.grid(alpha=0.3)
+
+# bottom: 2x2 McNemar contingency per bit-width, seed-averaged, fraction of n_test
+for i, b in enumerate(sorted(mc_all['bits'].unique())):
+    ax = fig.add_subplot(gs[1, i])
+    sub = mc_all[mc_all['bits'] == b]
+    nte = sub['n_test'].iloc[0]
+    table = np.array([[sub['both_right'].mean(), sub['rcnn_only'].mean()],
+                       [sub['mwpm_only'].mean(), sub['both_wrong'].mean()]]) / nte
+    ax.imshow(table, cmap='Blues', vmin=0, vmax=1)
+    for r in range(2):
+        for c in range(2):
+            ax.text(c, r, f'{table[r, c]*100:.2f}%', ha='center', va='center',
+                    color='white' if table[r, c] > 0.5 else 'black', fontsize=9)
+    ax.set_xticks([0, 1]); ax.set_xticklabels(['MWPM right', 'MWPM wrong'], fontsize=8)
+    ax.set_yticks([0, 1]); ax.set_yticklabels(['RCNN right', 'RCNN wrong'], fontsize=8)
+    p_worst = sub['p_exact'].max()  # worst (least significant) seed at this bit-width
+    ax.set_title(f'{b}-bit\\nworst p={p_worst:.1e}, n={len(sub)} seeds', fontsize=9)
+
+fig.suptitle('Phase 1 knee: paired McNemar, RCNN vs MWPM, shot-by-shot on shared tail', y=1.02)
+out_png = './figures/mcnemar_knee.png'
+os.makedirs(os.path.dirname(out_png), exist_ok=True)
+fig.savefig(out_png, dpi=150, bbox_inches='tight')
+print('saved ->', out_png)
+plt.show()"""))
 
 cells.append(md("""**Result.** Every seed × every bit-width **beats** MWPM, paired-significant (worst
 p=5e-5 at w6/seed1). Claim upgrades from "6-bit at parity" to **"6-bit weights beat MWPM,
@@ -185,7 +244,7 @@ if len(js) >= 2:
 else:
     print('need >=2 seed JSONs to compare')"""))
 
-cells.append(md("""### How to (re)run Phase 3 (per seed, asserts p_L)
+cells.append(md("""### To rerun Phase 3 (per seed, asserts p_L)
 
 ```bash
 cd ~/QuantumDecoderQKeras
@@ -297,8 +356,7 @@ every run. The threshold is `frac < 0`, not `frac < 1`: **B=6 leaves the ReLU at
 fractional width is warned about, not rejected. That B=6 works at all with an integer-only ReLU
 grid is a robustness result in its own right."""))
 
-cells.append(md("""### Paired McNemar — and why the naive reading was wrong
-
+cells.append(md("""### Paired McNemar
 The within-seed p_L differences above are **not** a significance test. Both runs decode the **same
 200k shots**, so each shot is a matched pair and the informative quantity is the discordant count
 (shots where exactly one of the two is right) — the same convention as Phase 1.
@@ -340,7 +398,7 @@ and 2 still beat it (p = 1.3e-03, 2.7e-05) but **seed 1 lands at p_L = 0.049400 
 0.049405 — a net of one shot in 200k, a dead heat.** So *"6-bit weights AND 6-bit activations still
 beat MWPM"* is **not supportable as stated**; it holds at B=8 on all three seeds.
 
-⚠️ The three seeds share one 200k tail, so their tests are **correlated, not independent**. Read
+PS: The three seeds share one 200k tail, so their tests are **correlated, not independent**. Read
 them as three consistent (or inconsistent) readings; do **not** Fisher-combine the p-values."""))
 
 cells.append(code("""# The figure. B=4 is excluded by default (--plot-exclude-bits): at 0.2826 it is ~6x every other
@@ -352,7 +410,7 @@ if not os.path.exists(p):
     print('regenerate with:  python phase2a_collate.py --dir', OUT_2A)
 Image(p) if os.path.exists(p) else None"""))
 
-cells.append(md("""### Where this leaves the FPGA path (the Giuseppe / Phase-4 conversation)
+cells.append(md("""### Where this leaves the FPGA path
 
 1. **Activation quantization works.** Bounded tensors at 8 bits cost nothing systematic; 6 bits
    cost a small consistent +0.0015 and are marginal against MWPM on one seed.
@@ -395,6 +453,13 @@ print('see docs/RUN_LOG.md and: git log --oneline quantization-pareto')"""))
 nb = {"cells": cells, "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python",
       "name": "python3"}, "language_info": {"name": "python"}}, "nbformat": 4, "nbformat_minor": 5}
 
+# Write to the repo root: that is the copy actually being run and edited. (An analysis_notebooks/
+# copy also exists and has drifted; the root one is authoritative for this thread.)
+#
+# REGENERATING STRIPS OUTPUTS. This emits execution_count=None and outputs=[] for every code cell,
+# so any executed results in the existing notebook are lost and the notebook must be re-run. Hand
+# edits to markdown cells are lost too -- port them back into this file first (as was done for the
+# 2026-07-20 wording changes) or they will not survive the next regeneration.
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'QUANTIZATION_EXPERIMENTS.ipynb')
 with open(out, 'w') as f:
     json.dump(nb, f, indent=1)
