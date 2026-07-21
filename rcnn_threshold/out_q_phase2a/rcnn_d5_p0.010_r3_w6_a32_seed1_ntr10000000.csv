@@ -1,0 +1,2 @@
+architecture,d,p,rounds,kernel,seed,n_train,n_test,weight_bits,act_bits,size_kb,epochs,epochs_ran,batch_size,n_params,p_L,mwpm_p_L,base_rate,beats_base_rate,best_val_loss,train_time_s,test_pool
+FullRCNNModel_QAT,5,0.01,3,3,1,10000000,200000,6,32,37.75,50,50,10000,51547,0.04731,0.0451,0.2826,1,0.11966,10368.7,data_d5_p0.010_r3_TAIL200k.npz
