@@ -243,9 +243,19 @@ class ActQuant:
 
     @staticmethod
     def set_relu_integer(I):
-        """Retune the decoder-ReLU integer width (default abs-max I=6; tighten to p99.9 I=4/5
-        only once the model trains). Call BEFORE set_bits/build."""
-        i, _, r = ActQuant._CLASSES['relu']
+        """Retune the decoder-ReLU integer width (default abs-max I=6; tighten to the p99.9
+        profiled width I=4/5 only once the model trains). Call BEFORE set_bits/build.
+
+        The ReLU class stays unsigned (keep_negative=False, is_relu=True); only the integer field
+        changes. At I=6 the ReLU has frac = B-6, which is 0 at B=6 (resolution 1.0 -- the prime
+        suspect for the +0.0015 cost measured at B=6). The profiled widths are I=4 (dec_layer0) and
+        I=5 (dec_layer1); the class API is a single width for both, so I=5 is the safe choice --
+        it covers dec_layer1's max and gives frac=1 at B=6.
+
+        NOTE this mutates process-global class state and persists until reset. Each sweep point runs
+        in its own subprocess (train_one_quantized.py), so there is no cross-run contamination; call
+        it once, before build, per process.
+        """
         ActQuant._CLASSES['relu'] = (I, False, True)
 
     @staticmethod
@@ -536,18 +546,27 @@ def enable_weight_quantization(weight_bits):
     _install_patches()
 
 
-def enable_activation_quantization(act_bits):
+def enable_activation_quantization(act_bits, relu_integer=None):
     """Set the activation word length B (Phase 2a) and install the wrappers.
-    act_bits None or >=32 => activations stay FP32 (the anchor / identity check)."""
+    act_bits None or >=32 => activations stay FP32 (the anchor / identity check).
+
+    relu_integer, when given, retunes the decoder-ReLU integer width BEFORE the quantizers are
+    built (set_relu_integer must precede set_bits). None keeps the default abs-max I=6. This is the
+    only per-class width the sweep exposes as a knob, because it is the one the profiling flagged as
+    slack: I=6 is the safe absolute-maximum, but the profiled p99.9 width is I=4/5, and at B=6 the
+    I=6 ReLU has zero fractional bits."""
+    if relu_integer is not None:
+        ActQuant.set_relu_integer(relu_integer)
     ActQuant.set_bits(act_bits)
     _install_patches()
 
 
-def build_quantized_rcnn(weight_bits, *args, act_bits=None, **kwargs):
+def build_quantized_rcnn(weight_bits, *args, act_bits=None, relu_integer=None, **kwargs):
     """Convenience: enable weight (and optionally activation) quantization, then build
     FullRCNNModel. Positional/keyword args are forwarded verbatim to FullRCNNModel.
     act_bits=None (default) => activations FP32, so existing weight-only callers are unchanged
-    and the model reproduces the w6/act-FP32 anchor bit-for-bit (the Phase-2a identity check)."""
+    and the model reproduces the w6/act-FP32 anchor bit-for-bit (the Phase-2a identity check).
+    relu_integer=None (default) => the decoder ReLU keeps its abs-max integer width (I=6)."""
     enable_weight_quantization(weight_bits)
-    enable_activation_quantization(act_bits)
+    enable_activation_quantization(act_bits, relu_integer=relu_integer)
     return FullRCNNModel(*args, **kwargs)
