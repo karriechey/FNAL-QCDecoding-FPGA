@@ -206,6 +206,65 @@ parameterization; the latter needs retraining), NOT decided here.
 Clip is applied to the **sum output** → quantize AFTER the clip. inverter/pow dormant at
 r=3. Anchor for Phase 2 = **w6/act-FP32** (not FP32/FP32)."""))
 
+cells.append(md(r"""### Per-class fixed-point format (methodology reference)
+
+Activation quantization is **per-class, not one global format**. Each class has a FIXED integer
+width `I`; the fractional width follows from the swept word length `B`. This is the table for the
+paper's methodology section.
+
+| class | signed? | integer I | what it is |
+|---|---|---|---|
+| **zlike** | signed | 4 | combiner output / decoder input (±12 clip) |
+| **relu** | unsigned | 6 (abs-max) | decoder hidden-ReLU outputs |
+| **embed** | signed | 2 | Detector{Bit,Event} embedder output |
+| **cphi** | signed | 0 | c_φ = tanh in (−1,1) |
+| **pf** | unsigned | 0 | sigmoid fractions in (0,1) |
+
+Fractional bits depend on the word length **B**: `frac = B − I − 1` for the signed classes
+(`quantized_bits`, one bit spent on sign), `frac = B − I` for the unsigned ReLU (`quantized_relu`).
+
+- **B=8** (free): zlike ap_fixed<8,5> frac=3 · relu ap_ufixed<8,6> frac=2 · embed frac=5 ·
+  cphi frac=7 · pf frac=8.
+- **B=6** (the knee, small cost): zlike frac=1 · relu frac=**0** · embed frac=3 · cphi frac=5 ·
+  pf frac=6.
+- **B=4** (infeasible — collapses): zlike frac=**−1**, relu frac=**−2** — negative fractional
+  width, which is why B=4 dies (base-rate constant predictor).
+- **relu retune** (Phase 2a-ReLU): at relu **I=5** the ReLU becomes ap_ufixed<6,5> frac=1 at B=6.
+
+The **x-like** tensors are deliberately **not** quantized — left FP32 for Phase 4 (they span
+~10 decades; no sane fixed-point format).
+
+**Two conventions to keep straight.** (1) QKeras `integer` **excludes** the sign bit, so a signed
+class with integer I maps to `ap_fixed<B, I+1>` in the paper's sign-inclusive notation. (2) Weights
+are separate: `quantized_bits(B, 1)` = 1 sign + 1 integer + (B−2) frac."""))
+
+cells.append(code(r'''# Live derivation of the per-class format table straight from ActQuant._CLASSES, so the
+# methodology table above can never silently drift from the code. Imports the quantization module
+# (pulls in qkeras/TF -- one-time cost per kernel). ap_fixed uses the paper's SIGN-INCLUSIVE
+# integer field (I + sign); QKeras' own `integer` arg excludes the sign, hence the +sign here.
+from CNNModel_quantized import ActQuant
+
+def fmt_row(cls, I, kneg, is_relu, B):
+    sign = 1 if (kneg and not is_relu) else 0
+    frac = B - I - sign                       # quantized_relu: sign=0 -> B-I; signed qb: B-I-1
+    kind = 'ap_ufixed' if sign == 0 else 'ap_fixed'
+    return f'{kind}<{B},{I + sign}>(frac={frac})', frac
+
+rows = []
+for cls, (I, kneg, is_relu) in sorted(ActQuant._CLASSES.items()):
+    r = {'class': cls, 'I': I, 'signed': bool(kneg and not is_relu)}
+    for B in (8, 6, 4):
+        fs, fr = fmt_row(cls, I, kneg, is_relu, B)
+        r[f'B={B}'] = fs
+        r[f'frac@{B}'] = fr
+    rows.append(r)
+fmt = pd.DataFrame(rows).set_index('class')
+print('Per-class fixed-point format, derived from ActQuant._CLASSES (frac<0 = infeasible):')
+print(fmt[['I', 'signed', 'B=8', 'B=6', 'B=4']].to_string())
+print('\\nfrac by B (negative = format collapses):')
+print(fmt[['frac@8', 'frac@6', 'frac@4']].to_string())
+print('\\nrelu retune (I=5) at B=6:', fmt_row('relu', 5, False, True, 6)[0])'''))
+
 cells.append(md("""## Phase 3 — range profiling (per-seed, for the ap_fixed table)
 
 `profile_ranges.py` wraps (never reimplements) the layer `.call`s + `clip_zlike/clip_exp`,
@@ -427,10 +486,75 @@ log-domain combination genuinely goes ≤0 and *plain* LSE is unavailable. The r
 accuracy since the model is actively using the indefinite region) — and it is **not decided**.
 
 **Open:**
-- Rerun B=6 with `ActQuant.set_relu_integer(4)` (p99.9 ReLU width, frac 0 → 2) to test how much of
-  the +0.0015 is the zero-fractional-width ReLU rather than the word length itself.
+- ~~Rerun B=6 with the p99.9 ReLU width to test whether the +0.0015 is the zero-fractional-width
+  ReLU.~~ **Done — see Phase 2a-ReLU below. Hypothesis rejected.**
 - A genuine low-B datapoint needs the integer-width policy retuned; B=4 stays blocked by z-like.
 - Phase 4 owns the x-like tensors. Decide signed-LSE vs Gram-constrained c_φ **with the collaborator**."""))
+
+cells.append(md("""## Phase 2a-ReLU — decoder-ReLU width retune at B=6 (negative result)
+
+**Hypothesis.** The approximately +0.0015 logical-error-rate cost at activation B=6 was caused
+primarily by the decoder ReLU having zero fractional bits under the abs-max format I=6, F=0.
+
+**Test.** Retrained the B=6 models for seeds 0, 1, and 2 with the shared ReLU integer width reduced
+to I=5, giving F=1, while leaving all other training and quantization settings unchanged.
+
+**Result.** The mean cost relative to each seed's act32 control changed from +0.00154 to +0.00176.
+Individual seeds moved in mixed directions, with no consistent improvement.
+
+**Conclusion.** No improvement from the ReLU retune was detectable above run-to-run variation. The
+zero-fractional-width ReLU is therefore not supported as the dominant cause of the B=6 degradation.
+Because I=5 provided no observed benefit and reduced representable range, the safer I=6 format is
+retained. The specific activation class or site responsible for the B=6 cost remains unidentified.
+Effects smaller than approximately 1e-3 cannot be resolved reliably with the current independent
+n=3 design."""))
+
+cells.append(code(r'''# Phase 2a-ReLU: compare the within-seed B=6 cost under the two ReLU integer widths.
+# Live -- loads both result dirs from disk. abs-max I=6 lives in out_q_phase2a; retuned I=5 in
+# out_q_phase2a_relu5 (its a32 controls were copied in, so each dir differences against its own).
+import matplotlib.pyplot as plt
+
+OUT_2A_RELU5 = os.path.join(BASE, 'out_q_phase2a_relu5')
+
+def _pl(d):
+    """{(act_bits, seed): p_L} from the 10M CSVs in dir d."""
+    out = {}
+    for f in glob.glob(os.path.join(d, '*_ntr10000000.csv')):
+        r = pd.read_csv(f).iloc[0]
+        out[(int(r['act_bits']), int(r['seed']))] = float(r['p_L'])
+    return out
+
+absmax = _pl(OUT_2A)          # relu I=6 (abs-max)   -- primary sweep
+retune = _pl(OUT_2A_RELU5)    # relu I=5 (profiled)  -- retune
+seeds = [0, 1, 2]
+
+# within-seed cost = p_L(B=6) - p_L(that seed's own act32 control)
+d_abs = [absmax[(6, s)] - absmax[(32, s)] for s in seeds]
+d_ret = [retune[(6, s)] - retune[(32, s)] for s in seeds]
+m_abs, m_ret = np.mean(d_abs), np.mean(d_ret)
+
+fig, ax = plt.subplots(figsize=(7.4, 4.8))
+x = np.arange(len(seeds)); w = 0.36
+ax.bar(x - w/2, np.array(d_abs)*1e3, w, label='abs-max ReLU I=6 (F=0)', color='#4C78A8')
+ax.bar(x + w/2, np.array(d_ret)*1e3, w, label='retuned ReLU I=5 (F=1)', color='#F58518')
+# mean lines (in the same 1e-3 units)
+ax.axhline(m_abs*1e3, color='#4C78A8', ls='--', lw=1.3, label=f'mean abs-max = {m_abs:+.5f}')
+ax.axhline(m_ret*1e3, color='#F58518', ls='--', lw=1.3, label=f'mean retuned = {m_ret:+.5f}')
+ax.axhline(0, color='0.4', lw=0.8)
+ax.set_xticks(x); ax.set_xticklabels([f'seed {s}' for s in seeds])
+ax.set_ylabel(r'within-seed cost  $p_L(B{=}6) - p_L(\mathrm{control})$   [$\times10^{-3}$]')
+ax.set_title('Phase 2a-ReLU: B=6 activation cost vs decoder-ReLU integer width\n'
+             'lowering I=6->5 (frac 0->1) did NOT reduce the cost -- seeds move both ways, '
+             'mean unchanged', fontsize=9)
+ax.legend(fontsize=8, loc='upper left', framealpha=0.95)
+ax.grid(axis='y', alpha=0.3)
+os.makedirs('figures', exist_ok=True)
+out_png = 'figures/phase2a_relu_retune.png'
+fig.savefig(out_png, dpi=150, bbox_inches='tight')
+print('saved ->', out_png)
+print(f'abs-max deltas: {[round(v,5) for v in d_abs]}  mean {m_abs:+.5f}')
+print(f'retuned deltas: {[round(v,5) for v in d_ret]}  mean {m_ret:+.5f}')
+plt.show()'''))
 
 cells.append(md("""## Provenance & status
 
