@@ -1,0 +1,2 @@
+d,p,rounds,n_total,n_test,train_capacity,mwpm_p_L,mwpm_resid_errors_test,base_rate_test,base_rate_pool,gen_seed
+5,0.01,3,20200000,200000,20000000,0.04909,9818,0.28176,0.28015,42
