@@ -6,3 +6,7 @@
 *.log
 __pycache__/
 *.pyc
+
+# Private working notes -- NEVER commit. Project handoff/strategy material and
+# personal working context, not research artefacts. Local only, by decision.
+claudemd/
