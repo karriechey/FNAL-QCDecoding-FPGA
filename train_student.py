@@ -57,6 +57,49 @@ from train_one import set_seeds, learning_rate_scheduler, lookup_mwpm  # reuse t
 LOG = '[student]'
 
 
+def sha16(path):
+    """First 16 hex chars of a file's SHA-256, or '' if it is not there."""
+    import hashlib
+    if not path or not os.path.exists(path):
+        return ''
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for block in iter(lambda: f.read(1 << 20), b''):
+            h.update(block)
+    return h.hexdigest()[:16]
+
+
+def run_provenance(args, train_pool, teacher_cache_npz):
+    """Identity of every input that determined this run's numbers.
+
+    Written into the result CSV so a row can be traced back to its exact inputs years
+    later, without depending on a directory name or on memory of which pool was current.
+    Records the training pool and its flips fingerprint, the tail pool, the teacher cache
+    and the teacher checkpoint it came from, this script's own hash, and a UTC timestamp.
+    """
+    import datetime
+    prov = {
+        'run_utc': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'train_pool': os.path.basename(train_pool),
+        'train_pool_dir': os.path.basename(os.path.dirname(os.path.abspath(train_pool))),
+        'test_pool': os.path.basename(args.test_pool) if args.test_pool else 'same-pool-tail',
+        'teacher_cache': os.path.basename(args.teacher_cache) if args.teacher_cache else '',
+        'teacher_weights_sha': '',
+        'train_pool_flips_sha': '',
+        'code_sha': sha16(os.path.abspath(__file__)),
+    }
+    if teacher_cache_npz is not None:
+        for key, col in (('weights_sha256', 'teacher_weights_sha'),
+                         ('pool_flips_sha256', 'train_pool_flips_sha')):
+            if key in teacher_cache_npz.files:
+                prov[col] = str(teacher_cache_npz[key])[:16]
+    return prov
+
+
+PROVENANCE_COLS = ['run_utc', 'train_pool', 'train_pool_dir', 'test_pool', 'teacher_cache',
+                   'teacher_weights_sha', 'train_pool_flips_sha', 'code_sha']
+
+
 def make_distillation_loss(alpha, temperature):
     """Blended hard-label + teacher-imitation loss over PACKED targets.
 
@@ -423,7 +466,8 @@ def run():
     e_tr = ztr['det_evts'][0:ntr].astype(binary_t)
     f_tr = ztr['flips'][0:ntr].astype(binary_t).reshape(-1)
     b_tr, _, _ = split_measurements(m_tr, d, idx_t)
-    x_tr = assemble_features(b_tr, e_tr, args.inputs)
+    x_tr = assemble_features(b_tr, e_tr, args.inputs, student=args.student,
+                             d=d, rounds=r, p=p)
     del m_tr, b_tr, e_tr
 
     # --- targets: pack [hard_label, teacher_logit] ----------------------------------
@@ -432,11 +476,13 @@ def run():
         # by the loss (weight 1-alpha == 0), so fill it with zeros rather than requiring
         # a cache the arm does not need.
         z_teach = np.zeros(ntr, dtype=np.float32)
+        teacher_npz = None
         print(f"{LOG} hard-label control arm: teacher column unused (alpha=1).",
               flush=True)
     else:
         z_teach, p_teach, f_cache = load_teacher_cache(args.teacher_cache, train_fn, 0, ntr,
                                                        pool_npz=ztr)
+        teacher_npz = np.load(args.teacher_cache, allow_pickle=False)
         # The cache carries its own copy of `flips`; if it disagrees with the pool's, the
         # two files are not describing the same shots and every soft target is misaligned.
         if not np.array_equal(f_cache.reshape(-1), f_tr.reshape(-1)):
@@ -444,6 +490,11 @@ def run():
                              "the cache is misaligned with these shots. STOP.")
         print(f"{LOG} teacher cache ok: {ntr:,} shots, mean p_teacher={p_teach.mean():.5f}",
               flush=True)
+
+    prov = run_provenance(args, train_fn, teacher_npz)
+    print(f"{LOG} provenance: pool={prov['train_pool_dir']}/{prov['train_pool']} "
+          f"flips_sha={prov['train_pool_flips_sha']} teacher_sha={prov['teacher_weights_sha']} "
+          f"code_sha={prov['code_sha']}", flush=True)
 
     y_tr = np.stack([f_tr.astype(np.float32), z_teach], axis=1)
 
@@ -455,7 +506,8 @@ def run():
     e_te = zte['det_evts'][te].astype(binary_t)
     f_te = zte['flips'][te].astype(binary_t).reshape(-1)
     b_te, _, _ = split_measurements(m_te, d, idx_t)
-    x_te = assemble_features(b_te, e_te, args.inputs)
+    x_te = assemble_features(b_te, e_te, args.inputs, student=args.student,
+                             d=d, rounds=r, p=p)
     del m_te, b_te, e_te
 
     # --- build, compile, fit --------------------------------------------------------
@@ -539,9 +591,26 @@ def run():
     os.makedirs(args.out_dir, exist_ok=True)
     wb = 'f32' if args.weight_bits is None else f'w{args.weight_bits}'
     ab = 'f32' if args.act_bits is None else f'a{args.act_bits}'
+    # The pool directory is part of the tag: the same (student, alpha, seed, ntr) trained
+    # on a different pool is a different experiment, and must not land on the same
+    # filenames as an earlier one.
+    pool_tag = prov['train_pool_dir']
     tag = args.tag or (f'student_{args.student}_{args.inputs.replace("+", "-")}_'
                        f'{wb}_{ab}_alpha{args.alpha:g}_T{args.temperature:g}_'
-                       f'seed{seed}_ntr{ntr}')
+                       f'seed{seed}_ntr{ntr}_{pool_tag}')
+
+    # Never silently replace an existing result. Collisions are archived with the run's
+    # timestamp rather than overwritten, so an accidental re-run cannot destroy a number
+    # that has not been written up yet.
+    csv_path = os.path.join(args.out_dir, tag + '.csv')
+    if os.path.exists(csv_path):
+        stamp = prov['run_utc'].replace(':', '').replace('-', '')
+        for ext in ('.csv', '.history.json', '.weights.h5'):
+            old = os.path.join(args.out_dir, tag + ext)
+            if os.path.exists(old):
+                os.rename(old, os.path.join(args.out_dir, f'{tag}.superseded_{stamp}{ext}'))
+        print(f"{LOG} existing results for this tag archived as "
+              f"{tag}.superseded_{stamp}.*", flush=True)
 
     fields = ['architecture', 'student', 'inputs', 'd', 'p', 'rounds', 'seed', 'n_train',
               'n_test', 'alpha', 'temperature', 'lr', 'weight_bits', 'act_bits', 'n_params',
@@ -551,7 +620,7 @@ def run():
               # teacher is confident, so agree_ambiguous is the one that carries signal
               'agree_all', 'agree_ambiguous', 'agree_confident', 'n_ambiguous',
               'frac_ambiguous', 'student_p_L_ambiguous', 'teacher_p_L_ambiguous',
-              'ambiguous_band', 'best_val_loss', 'train_time_s']
+              'ambiguous_band', 'best_val_loss', 'train_time_s'] + PROVENANCE_COLS
     with open(os.path.join(args.out_dir, tag + '.csv'), 'w', newline='') as cf:
         w = csv.DictWriter(cf, fieldnames=fields)
         w.writeheader()
@@ -569,7 +638,7 @@ def run():
             base_rate=round(base_rate, 5), beats_base_rate=int(beats_base),
             ambiguous_band=f'{args.ambiguous_band[0]}-{args.ambiguous_band[1]}',
             best_val_loss=round(best_val, 5), train_time_s=round(train_time, 1),
-            **ag))
+            **ag, **prov))
     with open(os.path.join(args.out_dir, tag + '.history.json'), 'w') as hf:
         json.dump({k2: [float(x) for x in v] for k2, v in hist.history.items()}, hf)
     wpath = os.path.join(args.out_dir, tag + '.weights.h5')
