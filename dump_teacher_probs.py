@@ -45,8 +45,40 @@ USAGE
       --out ~/rcnn_threshold/teacher/teacher_seed0_first1M.npz
 """
 import argparse
+import hashlib
 import os
 import numpy as np
+
+
+def sha256_file(path, chunk=1 << 20):
+    """SHA-256 of a file on disk. Used to fingerprint the teacher checkpoint.
+
+    The .weights.h5 is a couple of hundred KB, so hashing it whole costs nothing, and it
+    is the single object that determines every soft target in the cache. If it changes,
+    the cache is stale even though nothing about the pool moved.
+    """
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for block in iter(lambda: f.read(chunk), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def pool_fingerprint(pool_npz):
+    """Cheap identity fingerprint for a pool, WITHOUT hashing the multi-GB arrays.
+
+    Hashes the FULL `flips` array (10M shots = 10 MB of int8, a few milliseconds) and
+    records the `measurements` shape. flips is derived from the same generator draw as the
+    measurements, so two pools agreeing on every one of 10M labels AND on the measurement
+    shape are the same draw for every practical purpose. Deliberately does NOT touch
+    `measurements` or `det_evts` -- a full hash of those is ~1.7 GB of IO on every single
+    training run, which would be a real cost for a check that adds nothing here.
+
+    Returns (flips_sha256, measurements_shape_string).
+    """
+    flips = np.ascontiguousarray(pool_npz['flips'])
+    digest = hashlib.sha256(flips.tobytes()).hexdigest()
+    return digest, str(pool_npz['measurements'].shape)
 
 
 def recover_logit(p):
@@ -110,6 +142,16 @@ def run():
 
     z = np.load(fn)
     N = z['measurements'].shape[0]
+
+    # Identity fingerprints, computed once here and re-verified by train_student.py. These
+    # catch "same filename, different content" -- a re-generated pool or a re-trained
+    # teacher checkpoint -- which the runtime flips-agreement check cannot see because it
+    # only compares the shots the cache itself carries.
+    weights_sha = sha256_file(args.weights)
+    pool_flips_sha, pool_meas_shape = pool_fingerprint(z)
+    print(f"[teacher] weights sha256={weights_sha[:16]}...  "
+          f"pool flips sha256={pool_flips_sha[:16]}...  measurements{pool_meas_shape}",
+          flush=True)
     lo, hi = args.n_start, args.n_start + args.n_shots
     if hi > N:
         raise SystemExit(f"[teacher] requested shots [{lo}, {hi}) exceed pool size {N}")
@@ -172,6 +214,11 @@ def run():
         n_start=lo, n_shots=args.n_shots,
         weights_path=os.path.abspath(args.weights),
         pool_path=os.path.abspath(fn),
+        # fingerprints -- see pool_fingerprint()/sha256_file() for why these two and not
+        # a full hash of the measurement arrays
+        weights_sha256=weights_sha,
+        pool_flips_sha256=pool_flips_sha,
+        pool_measurements_shape=pool_meas_shape,
     )
     print(f"[teacher] wrote -> {args.out}", flush=True)
 
