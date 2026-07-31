@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Created: 2026-07-12
-# Last modified: 2026-07-15
+# Last modified: 2026-07-31
 """Re-evaluate a SAVED FullRCNNModel on a fixed test tail WITHOUT retraining,
 optionally with a paired McNemar test vs MWPM on the SAME shots.
 
@@ -167,10 +167,6 @@ def run():
     mwpm = lookup_mwpm(args.data_dir, d, p, r)
     mwpm_tail = mwpm  # overwritten with the freshly-decoded value when --mcnemar
 
-    gap = '' if mwpm is None else f'  MWPM={mwpm:.5f}  gap={pL - mwpm:+.5f}  ratio={pL/mwpm:.3f}x'
-    print(f"[eval] {os.path.basename(args.weights)}  n_test={nte:,}  "
-          f"RCNN p_L={pL:.5f}{gap}  base_rate={base_rate:.3f}", flush=True)
-
     mc = None
     if args.mcnemar:
         import pymatching
@@ -194,6 +190,28 @@ def run():
               f"p_chi2={mc['p_chi2']:.2e}  p_exact={mc['p_exact']:.2e}  "
               f"(MWPM p_L on this tail = {mwpm_pL:.5f})", flush=True)
 
+    # Reported after the --mcnemar block so the number printed is the one describing the
+    # shots just scored.
+    #
+    # Two different MWPM values can reach this point:
+    #   --mcnemar     MWPM decoded on this exact tail. Valid.
+    #   otherwise     the mwpm_baseline.csv lookup, which matches on (d, p, rounds) only
+    #                 and says nothing about which tail it was computed on.
+    # With an explicit --pool the lookup describes different shots, so the baseline and
+    # ratio are withheld rather than written wrong. p_L is unaffected either way.
+    mwpm_source = 'redecoded_on_tail' if args.mcnemar else 'stored_baseline'
+    stale_for_this_tail = bool(args.pool) and not args.mcnemar
+    if stale_for_this_tail:
+        gap = ('  MWPM=SUPPRESSED (--pool given without --mcnemar: the stored baseline '
+               'describes a different tail; re-run with --mcnemar for a valid ratio)')
+    elif mwpm_tail is None:
+        gap = ''
+    else:
+        gap = (f'  MWPM[{mwpm_source}]={mwpm_tail:.5f}  gap={pL - mwpm_tail:+.5f}'
+               f'  ratio={pL / mwpm_tail:.3f}x')
+    print(f"[eval] {os.path.basename(args.weights)}  n_test={nte:,}  "
+          f"RCNN p_L={pL:.5f}{gap}  base_rate={base_rate:.3f}", flush=True)
+
     if args.dump_per_shot:
         tail_idx = np.arange(N - nte, N)              # shot indices into the pool
         dump = dict(
@@ -213,8 +231,11 @@ def run():
         print(f"[eval] dumped per-shot -> {args.dump_per_shot}  (keys: {keys})", flush=True)
 
     if args.out_csv:
-        base_cols = ['weights', 'd', 'p', 'rounds', 'n_test', 'p_L', 'mwpm_p_L', 'ratio',
-                     'base_rate']
+        base_cols = ['weights', 'd', 'p', 'rounds', 'n_test', 'p_L', 'mwpm_p_L',
+                     # which MWPM the two columns to the left actually are. A row whose
+                     # source is stored_baseline while --pool named a different tail is
+                     # not comparable and must be re-scored with --mcnemar.
+                     'mwpm_source', 'pool', 'ratio', 'base_rate']
         mc_cols = ['both_right', 'rcnn_only', 'mwpm_only', 'both_wrong', 'n_discordant',
                    'net_rcnn_wins', 'mcnemar_chi2_cc', 'p_chi2', 'p_exact']
         new = not os.path.exists(args.out_csv)
@@ -222,9 +243,14 @@ def run():
             w = csv.writer(f)
             if new:
                 w.writerow(base_cols + mc_cols)
+            # Baseline and ratio left empty when the lookup describes a different tail;
+            # mwpm_source and pool say which case a row is.
             base = [os.path.basename(args.weights), d, p, r, nte, round(pL, 6),
-                    '' if mwpm_tail is None else round(mwpm_tail, 6),
-                    '' if mwpm_tail is None else round(pL / mwpm_tail, 4), round(base_rate, 5)]
+                    '' if (mwpm_tail is None or stale_for_this_tail) else round(mwpm_tail, 6),
+                    mwpm_source,
+                    os.path.basename(args.pool) if args.pool else '(data-dir default)',
+                    '' if (mwpm_tail is None or stale_for_this_tail) else round(pL / mwpm_tail, 4),
+                    round(base_rate, 5)]
             extra = ([mc['both_right'], mc['rcnn_only'], mc['mwpm_only'], mc['both_wrong'],
                       mc['n_discordant'], mc['net_rcnn_wins'], round(mc['mcnemar_chi2_cc'], 3),
                       mc['p_chi2'], mc['p_exact']] if mc else [''] * len(mc_cols))
