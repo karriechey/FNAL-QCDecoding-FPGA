@@ -15,8 +15,9 @@
 #   2. Report the three tail p_L values so the median teacher can be designated.
 #      Median, not best: picking the best of three on the tail the students are later
 #      scored on would select a favourable draw and leak it downstream.
-#   3. Build the teacher caches for the designated teacher -- the 1M training prefix and
-#      the 200k tail. The tail cache is what enables the ambiguous-band agreement columns.
+#   3. Build the teacher caches for the designated teacher -- one training-prefix cache
+#      covering every ladder rung, and the 200k tail cache that enables the
+#      ambiguous-band agreement columns.
 #
 # Prints the three numbers and stops; set TEACHER_SEED and re-run with BUILD_CACHES=1
 # once the median is known.
@@ -35,6 +36,7 @@ WDIR="$RT/out_t200k_w"
 OUTDIR="$RT/teacher"
 NTE=200000
 NTR="${NTR:-10000000}"     # one prefix cache covers every ladder rung, since rungs nest
+PY="${PY:-python}"
 
 # Where the evaluation tail lives. pools_t200k carries its own tail as the last 200k of
 # the training file (n_total 10.2M = 10M train + 200k tail); pools/ uses the separate
@@ -44,40 +46,36 @@ if [ -f "$RT/$POOL_DIR/data_d5_p0.010_r3_TAIL200k.npz" ]; then
   TAIL_START=0
 else
   TAIL_SRC="$TRAIN_POOL"
-  TAIL_START=$(( $(  $PY -c "import numpy as np,sys;print(np.load(sys.argv[1])['measurements'].shape[0])" "$TRAIN_POOL" ) - NTE ))
+  TAIL_START=$(( $($PY -c "import numpy as np,sys;print(np.load(sys.argv[1])['measurements'].shape[0])" "$TRAIN_POOL") - NTE ))
 fi
-PY="${PY:-python}"
 
 mkdir -p "$OUTDIR"
 
-for f in "$TRAIN_POOL" "$TAIL_POOL"; do
+for f in "$TRAIN_POOL" "$TAIL_SRC"; do
   [ -f "$f" ] || { echo "MISSING $f -- build it with make_fresh_tail.py before running."; exit 1; }
 done
 
 echo "=============================================================="
 echo "0. Pool fingerprints (compare against any cache built off-EAF)"
 echo "=============================================================="
-$PY - <<'PYEOF'
+$PY - "$TRAIN_POOL" "$TAIL_SRC" <<'PYEOF'
 import numpy as np, os, sys
 sys.path.insert(0, os.getcwd())
 from dump_teacher_probs import pool_fingerprint
-for name, path in [('train', os.path.expanduser('~/rcnn_threshold/pools/data_d5_p0.010_r3.npz')),
-                   ('tail ', os.path.expanduser('~/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz'))]:
+for name, path in [('train', sys.argv[1]), ('tail ', sys.argv[2])]:
     z = np.load(path)
     sha, shape = pool_fingerprint(z)
-    print(f"  {name} pool: flips_sha256={sha[:24]}...  measurements{shape}")
+    print(f"  {name}: {os.path.basename(os.path.dirname(path))}/{os.path.basename(path)}")
+    print(f"         flips_sha256={sha[:24]}...  measurements{shape}")
 PYEOF
 echo
-echo "  NOTE: the Mac-built 1M prefix caches carry pool flips_sha256 67995c29ee99...."
-echo "  If the train pool above matches that prefix, those caches are valid here and"
-echo "  step 3's prefix build is redundant. If it does NOT match, the pools differ and"
-echo "  the caches MUST be rebuilt here -- train_student.py will refuse them either way,"
-echo "  so this is a convenience check, not the safety net."
+echo "  train_student.py refuses a cache whose fingerprint does not match the pool, so"
+echo "  this print is a convenience check rather than the safety net."
 echo
 
 if [ "${BUILD_CACHES:-0}" != "1" ]; then
   echo "=============================================================="
-  echo "1-2. Score all three teachers on the FRESH 200k tail"
+  echo "1-2. Score all three teachers on the 200k tail"
   echo "=============================================================="
   # UTC-stamped: an earlier scoring pass is never removed.
   SCORES="$OUTDIR/teacher_tail_scores_$(date -u +%Y%m%dT%H%M%SZ).csv"
@@ -86,11 +84,11 @@ if [ "${BUILD_CACHES:-0}" != "1" ]; then
     $PY eval_on_tail.py \
       --weights "$WDIR/rcnn_d5_p0.010_r3_seed${s}_ntr10000000.weights.h5" \
       --d 5 --p 0.010 --rounds 3 --n-test "$NTE" \
-      --pool "$TAIL_POOL" --mcnemar --out-csv "$SCORES"
+      --pool "$TAIL_SRC" --data-dir "$RT/$POOL_DIR" --mcnemar --out-csv "$SCORES"
   done
   echo
   echo "=============================================================="
-  echo "Three teachers on the fresh 200k tail:"
+  echo "Three teachers on the 200k tail:"
   echo "=============================================================="
   $PY - "$SCORES" <<'PYEOF'
 import csv, sys, statistics
@@ -116,14 +114,12 @@ echo "=============================================================="
 echo "3. Building caches for the designated teacher: seed $S"
 echo "=============================================================="
 
-echo "--- 1M training prefix (from the TRAIN pool) ---"
+echo "--- training prefix, shots [0, $NTR) of $(basename "$TRAIN_POOL") ---"
 $PY dump_teacher_probs.py --weights "$W" \
   --d 5 --p 0.010 --rounds 3 --n-start 0 --n-shots "$NTR" \
   --pool "$TRAIN_POOL" --out "$OUTDIR/teacher_seed${S}_prefix${NTR}_${POOL_DIR}.npz"
 
-# The tail cache covers the WHOLE fresh tail pool: that file is 200k shots of pure
-# evaluation data, so the range is [0, 200000) of THAT file, not a slice of the training
-# pool. train_student.py checks the cache length equals --n-test before using it.
+# train_student.py checks the cache length equals --n-test before using it.
 echo "--- 200k evaluation tail (shots [$TAIL_START, $((TAIL_START+NTE))) of $(basename "$TAIL_SRC")) ---"
 $PY dump_teacher_probs.py --weights "$W" \
   --d 5 --p 0.010 --rounds 3 --n-start "$TAIL_START" --n-shots "$NTE" \
@@ -133,5 +129,5 @@ echo
 echo "Done. The grid can now run with:"
 echo "  --teacher-cache      $OUTDIR/teacher_seed${S}_prefix${NTR}_${POOL_DIR}.npz"
 echo "  --teacher-tail-cache $OUTDIR/teacher_seed${S}_tail${NTE}_${POOL_DIR}.npz"
-echo "  --test-pool          $TAIL_POOL"
+echo "  --pool               $TRAIN_POOL"
 echo "  --lr 0.003 --temperature 1.0"

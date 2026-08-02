@@ -96,14 +96,29 @@ for a in $ALPHAS; do
   done
 done
 
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+SUMMARY="$RT/ladder_summary_${POOL_DIR}_${STAMP}.csv"
+ARCHIVE="$HOME/ladder_results_${POOL_DIR}_${STAMP}.tgz"
+
 echo "=============================================================="
 echo "Ladder complete."
 echo "=============================================================="
-$PY - "$OUTDIR" <<'PYEOF'
+$PY - "$OUTDIR" "$SUMMARY" <<'PYEOF'
 import csv, glob, os, sys, statistics as st, collections
+
+outdir, summary_path = sys.argv[1], sys.argv[2]
 rows = []
-for f in sorted(glob.glob(os.path.join(sys.argv[1], 'ladder_*.csv'))):
+for f in sorted(glob.glob(os.path.join(outdir, 'ladder_*.csv'))):
     rows += list(csv.DictReader(open(f)))
+
+# Every per-run row in one file, so the whole ladder is a single download. The per-run
+# CSVs stay on EAF as the detailed record.
+if rows:
+    with open(summary_path, 'w', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+
 key = lambda r: (r['student'], r['alpha'], int(r['n_train']))
 groups = collections.defaultdict(list)
 for r in rows:
@@ -116,6 +131,15 @@ for k in sorted(groups):
 print()
 print("  Same tail as the RCNN ladder: MWPM = 0.04875 on the pools_t200k 200k tail.")
 print("  alpha=1.0 is the like-for-like architecture comparison against the RCNN curve;")
-print("  alpha=0.0 is the deployable distilled student and is NOT a like-for-like point")
+print("  alpha=0.0 is the deployable distilled student and is not a like-for-like point")
 print("  on the data-volume axis (its teacher saw 10M shots).")
+print(f"\n  {len(rows)} runs collated -> {summary_path}")
 PYEOF
+
+# Full artifacts (per-run CSVs, histories, weights) as one archive.
+tar czf "$ARCHIVE" -C "$RT" "$(basename "$OUTDIR")"
+echo "  archive -> $ARCHIVE  ($(du -h "$ARCHIVE" | cut -f1))"
+echo
+echo "  Download the summary for a quick look, the archive for the full record:"
+echo "    $SUMMARY"
+echo "    $ARCHIVE"
