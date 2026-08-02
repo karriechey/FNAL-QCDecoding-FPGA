@@ -121,6 +121,11 @@ def run():
 
     os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
     import tensorflow as tf
+    # Keras 3 rebuilds CNNModel.py's custom layers through a different path and fails deep
+    # inside an initializer (list-vs-tuple shape compare), so fail here instead.
+    assert tf.__version__.startswith('2.15'), (
+        f'need TF 2.15.x (Keras 2); got TF {tf.__version__}. '
+        f'Activate the pinned environment (conda activate fnal-qcdecoding-tests).')
     if args.cpu:
         tf.config.set_visible_devices([], 'GPU')
 
