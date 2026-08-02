@@ -1,42 +1,31 @@
 #!/usr/bin/env python3
 # Created: 2026-07-29
 # Last modified: 2026-07-31
-"""Train ONE distillation student (MLP or GRU) against the cached FP32 teacher outputs.
+"""Train one distillation student (MLP or GRU) against the cached FP32 teacher outputs.
 
 A single point is (student, inputs, seed, n_train, alpha, temperature, weight_bits,
 act_bits). This is the Phase-2 workhorse: it trains an hls4ml-native student to imitate
 the custom RCNN teacher, so the FPGA flow never has to parse the teacher's unsupported
 combiner ops (pow/sqrt/log/gather).
 
-THE HARD-VS-SOFT CONTROL IS ONE FLAG
-  --alpha 1.0  -> pure hard labels. The control arm: what the student architecture can do
-                  on its own, learning from `flips` exactly like the teacher did.
-  --alpha 0.0  -> pure distillation. Learns only from the teacher's soft output.
-  0 < a < 1    -> the usual blend.
-Same code path for all three, so the comparison is not confounded by two different
-trainers. The de-risk experiment is this script run at both ends of alpha at 1M shots.
+Hard-vs-soft is one flag:
+  --alpha 1.0  pure hard labels, the control arm -- what the architecture does alone
+  --alpha 0.0  pure distillation, learning only from the teacher's soft output
+  0 < a < 1    a blend
+One code path for all three, so the comparison is not confounded by two trainers.
 
-WHY SOFT LABELS SHOULD HELP HERE
-The hard label is one bit: did the logical qubit flip. The teacher's output is a
-calibrated probability that also encodes HOW ambiguous the shot's syndrome was. Shots
-where the teacher sits near 0.5 are the genuinely undecidable ones, and telling the
-student "this one is a coin flip" is information the hard label physically cannot carry.
-That extra signal per shot is the entire reason distillation can beat same-architecture
-hard-label training, and it is exactly what --alpha measures.
+The hard label is one bit. The teacher's output is a calibrated probability that also
+says how ambiguous the syndrome was; a teacher near 0.5 is telling the student the shot
+is a coin flip, which the hard label cannot express. That is what --alpha measures.
 
-TEMPERATURE
-Softening is done in logit space: the soft target is sigmoid(z_teacher / T) and the
-student's logit is likewise divided by T. The soft term is multiplied by T^2 so its
-gradient magnitude stays comparable to the hard term as T varies (otherwise raising T
-would silently shrink the soft learning rate and confound a temperature scan with a
-loss-weight scan). T=1 is the untempered teacher distribution.
+Temperature acts in logit space: the soft target is sigmoid(z_teacher / T) and the
+student's logit is divided by T. The soft term carries a T^2 factor so its gradient stays
+comparable to the hard term as T varies, otherwise a temperature scan doubles as a
+loss-weight scan. T=1 is the untempered teacher.
 
-DISJOINTNESS
-Same rule as train_one_quantized.py, and for the same reason: the tail comes from a
-SEPARATE --test-pool when given, otherwise from the same pool behind the
-`ntr <= N - nte` assert. A 200k tail on the 10.01M pool would overlap a 10M-shot training
-prefix by 190k shots. The teacher cache is additionally checked to cover the training
-range and to have come from the same pool file.
+Disjointness follows train_one_quantized.py: the tail comes from --test-pool when given,
+otherwise from the same pool behind the `ntr <= N - nte` assert. The teacher cache is
+also checked to cover the training range and to come from the same pool.
 
 Reads  the pool npz (measurements, det_evts, flips) + the teacher cache from
        dump_teacher_probs.py.
@@ -70,12 +59,9 @@ def sha16(path):
 
 
 def run_provenance(args, train_pool, teacher_cache_npz):
-    """Identity of every input that determined this run's numbers.
-
-    Written into the result CSV so a row can be traced back to its exact inputs years
-    later, without depending on a directory name or on memory of which pool was current.
-    Records the training pool and its flips fingerprint, the tail pool, the teacher cache
-    and the teacher checkpoint it came from, this script's own hash, and a UTC timestamp.
+    """Identity of every input that determined this run, written into the result CSV so a
+    row stays traceable without relying on directory names: training pool and its flips
+    fingerprint, tail pool, teacher cache and checkpoint hash, this script's hash, UTC.
     """
     import datetime
     prov = {
@@ -101,14 +87,11 @@ PROVENANCE_COLS = ['run_utc', 'train_pool', 'train_pool_dir', 'test_pool', 'teac
 
 
 def make_distillation_loss(alpha, temperature):
-    """Blended hard-label + teacher-imitation loss over PACKED targets.
+    """Blended hard-label and teacher-imitation loss.
 
-    y_true is packed as two columns, [hard_label, teacher_logit], because Keras hands the
-    loss exactly one target tensor. y_pred is the student's raw logit.
-
-    Returned as a closure rather than a Loss subclass so it stays trivially readable and
-    needs no custom-object registration when weights are reloaded (we reload weights into
-    a freshly built architecture, never a whole serialized model).
+    y_true is packed as two columns, [hard_label, teacher_logit], since Keras passes one
+    target tensor. y_pred is the student's raw logit. A closure rather than a Loss
+    subclass, so reloading weights needs no custom-object registration.
     """
     import tensorflow as tf
     bce = tf.keras.losses.binary_crossentropy
@@ -135,21 +118,18 @@ def make_distillation_loss(alpha, temperature):
 
 
 class TailDiagnostics:
-    """Per-epoch tail diagnostics, built as a Keras callback at call time.
+    """Per-epoch tail metrics, built as a Keras callback at call time.
 
-    Exists because the failure mode this de-risk is hunting -- a too-hot learning rate --
-    shows up in the SHAPE of the curves, and specifically in signals that appear before
-    p_L moves at all. A student sliding toward predicting one class everywhere first shows
-    a collapsing logit spread; p_L only follows once the collapse is nearly complete. So
-    the logit std is the early tell and is logged alongside the outcome metrics.
+    A student drifting toward one class shows a collapsing logit spread before p_L moves,
+    so logit_std is the early warning for a too-hot learning rate.
 
-    Recorded each epoch:
+    Per epoch:
       tail_p_L         error rate on the evaluation tail
-      pred_pos_rate    fraction of tail shots predicted positive (logit > 0)
-      base_rate        fraction actually positive -- logged every epoch, not once, so the
-                       comparison never has to be reconstructed from another file
-      collapsed        1 if |pred_pos_rate - base_rate| < eps AND the logit spread is
-                       degenerate; the two together are what class collapse means
+      pred_pos_rate    fraction predicted positive (logit > 0)
+      base_rate        fraction actually positive, logged every epoch so the comparison
+                       needs no second file
+      collapsed        1 when pred_pos_rate sits within eps of base_rate and the logit
+                       spread is degenerate
       logit_mean/std   distribution of the raw student output
     """
 
@@ -184,31 +164,24 @@ class TailDiagnostics:
                 print(f"    [tail] epoch {epoch + 1:3d}  p_L={p_L:.5f}  "
                       f"pred_pos={ppr:.4f} (base={outer.base_rate:.4f})  "
                       f"logit mean={lmean:+.3f} std={lstd:.3f}"
-                      f"{'  <-- COLLAPSED' if collapsed else ''}", flush=True)
+                      f"{'  <-- collapsed' if collapsed else ''}", flush=True)
 
         return _CB()
 
 
 def teacher_agreement(student_pred, teacher_prob, truth, band):
-    """Student-vs-teacher decision agreement, overall AND restricted to ambiguous shots.
+    """Student-vs-teacher decision agreement, overall and restricted to ambiguous shots.
 
-    WHY THE RAW NUMBER IS NOT ENOUGH
-    This teacher is highly confident: ~80% of shots land at p<0.05 or p>0.95. On those
-    shots almost any competent student agrees, so a raw agreement rate is dominated by the
-    easy majority and will read high (and flatteringly stable) no matter how badly the
-    student reproduces the teacher where it actually matters. It cannot distinguish a
-    student that has genuinely absorbed the teacher's decision function from one that has
-    only learned the easy bulk.
+    The teacher is confident on ~80% of shots (p<0.05 or p>0.95), where almost any student
+    agrees, so the raw rate is dominated by the easy bulk and reads high regardless: a
+    student that coin-flips inside the band still scores ~0.90 raw.
 
-    The informative quantity is agreement on the AMBIGUOUS band -- the shots where the
-    teacher itself is unsure (band[0] < p_teacher < band[1]). Those are the syndromes
-    whose decoding is genuinely contested, they are where the teacher's advantage over a
-    hard label lives, and they are where a student that merely learned the bulk will
-    visibly diverge. Distillation is supposed to transfer exactly this.
+    The informative figure is agreement where the teacher is unsure
+    (band[0] < p_teacher < band[1]) -- the contested syndromes distillation should transfer.
 
-    Returns a dict with the raw rate, the band-restricted rate, the confident-subset rate
-    for contrast, the band population, and both models' error rates inside the band (a
-    student can agree with the teacher there and both still be wrong).
+    Returns the raw rate, the band-restricted rate, the confident-subset rate, the band
+    population, and both models' error rates inside the band (agreeing there does not mean
+    either is right).
     """
     p_t = np.asarray(teacher_prob).reshape(-1)
     s_pred = np.asarray(student_pred).reshape(-1).astype(np.int8)
@@ -240,10 +213,10 @@ def teacher_agreement(student_pred, teacher_prob, truth, band):
 
 
 def make_hard_accuracy():
-    """Accuracy against the HARD label only, ignoring the packed teacher column.
+    """Accuracy against the hard label only, ignoring the packed teacher column.
 
-    Without this, Keras's stock accuracy would compare the student's logit against a
-    2-column target and report a meaningless number, which is worse than reporting none.
+    Keras's stock accuracy would compare the logit against a 2-column target and report a
+    meaningless number.
     """
     import tensorflow as tf
 
@@ -256,45 +229,40 @@ def make_hard_accuracy():
 
 
 def verify_cache_fingerprints(tc, pool_npz):
-    """Check the cache's stored fingerprints against the pool and teacher on disk NOW.
+    """Check the cache's stored fingerprints against the pool and teacher on disk.
 
-    Complements the runtime flips-agreement check rather than replacing it. That check can
-    only compare the shots the cache carries; these fingerprints catch the cases it cannot
-    see -- a pool regenerated under the same filename, or a teacher checkpoint retrained
-    in place. Both would otherwise train a student against soft targets that no longer
-    correspond to anything.
-
-    A missing fingerprint is a warning, not an error, so caches written before this check
-    existed stay usable.
+    Complements the runtime flips-agreement check, which only sees the shots the cache
+    carries. These catch a pool regenerated under the same filename or a checkpoint
+    retrained in place. A missing fingerprint warns rather than fails, so older caches
+    stay usable.
     """
     from dump_teacher_probs import sha256_file, pool_fingerprint
 
     if 'pool_flips_sha256' not in tc.files:
-        print(f"{LOG} WARNING: cache predates fingerprinting -- identity not verified. "
+        print(f"{LOG} warning: cache predates fingerprinting -- identity not verified. "
               "Re-run dump_teacher_probs.py to get the check.", flush=True)
         return
 
     flips_sha, meas_shape = pool_fingerprint(pool_npz)
     if flips_sha != str(tc['pool_flips_sha256']):
         raise SystemExit(
-            f"{LOG} POOL FINGERPRINT MISMATCH -- the pool on disk is not the one the "
+            f"{LOG} pool fingerprint mismatch -- the pool on disk is not the one the "
             "teacher cache was built from (same path, different content: regenerated "
-            "pool?). Re-dump the teacher cache. STOP.")
+            "pool?). Re-dump the teacher cache.")
     if meas_shape != str(tc['pool_measurements_shape']):
         raise SystemExit(
             f"{LOG} pool measurements shape {meas_shape} != cache's "
-            f"{str(tc['pool_measurements_shape'])}. STOP.")
+            f"{str(tc['pool_measurements_shape'])}.")
 
-    # The teacher checkpoint is only checkable if it is still where the cache recorded it.
-    # It usually is locally, but a cache pulled from EAF will point at a path that does not
-    # exist here -- that is expected and not an error.
+    # Only checkable if the checkpoint is still at the recorded path; a cache pulled from
+    # EAF will point somewhere that does not exist locally, which is expected.
     wpath = str(tc['weights_path']) if 'weights_path' in tc.files else ''
     if 'weights_sha256' in tc.files and wpath and os.path.exists(wpath):
         if sha256_file(wpath) != str(tc['weights_sha256']):
             raise SystemExit(
-                f"{LOG} TEACHER CHECKPOINT MISMATCH -- the .weights.h5 at the cached "
+                f"{LOG} teacher checkpoint mismatch -- the .weights.h5 at the cached "
                 "path has changed since the cache was built (retrained in place?). The "
-                "soft targets no longer come from these weights. Re-dump. STOP.")
+                "soft targets no longer come from these weights. Re-dump.")
         print(f"{LOG} fingerprints verified: pool and teacher checkpoint both match "
               "the cache.", flush=True)
     else:
@@ -303,7 +271,7 @@ def verify_cache_fingerprints(tc, pool_npz):
 
 
 def load_teacher_cache(path, pool_path, lo, hi, pool_npz=None):
-    """Load cached teacher outputs and verify they actually cover [lo, hi) of THIS pool.
+    """Load cached teacher outputs and verify they cover [lo, hi) of this pool.
 
     Every failure this checks for is silent otherwise: a cache built from a different
     pool, or covering a shorter range than the requested training prefix, would still
@@ -368,14 +336,14 @@ def run():
                          'which are the distillation gap measurement.')
     ap.add_argument('--ambiguous-band', type=float, nargs=2, default=[0.05, 0.95],
                     metavar=('LO', 'HI'),
-                    help='teacher-probability band counted as AMBIGUOUS. Agreement is '
+                    help='teacher-probability band counted as ambiguous. Agreement is '
                          'reported both raw and restricted to this band. The raw rate is '
                          'dominated by the ~80%% of shots where this teacher is confident '
                          'and reads misleadingly high; the band-restricted rate is the '
                          'one that measures whether the teacher\'s decision function '
                          'actually transferred. Default 0.05-0.95.')
     ap.add_argument('--alpha', type=float, default=0.0,
-                    help='weight on the HARD-label term. 1.0 = hard labels only (control '
+                    help='weight on the hard-label term. 1.0 = hard labels only (control '
                          'arm, needs no teacher cache); 0.0 = pure distillation.')
     ap.add_argument('--temperature', type=float, default=1.0)
     # --- training recipe (mirrors train_one.py) ---
@@ -388,7 +356,7 @@ def run():
     ap.add_argument('--patience', type=int, default=5)
     ap.add_argument('--no-early-stopping', action='store_true')
     ap.add_argument('--lr', type=float, default=None,
-                    help='CONSTANT learning rate, replacing the inherited train_one.py '
+                    help='constant learning rate, replacing the inherited train_one.py '
                          'schedule. That schedule opens at 1e-2 because it has to kick the '
                          'teacher\'s zero-init state correlator off its slow start; a plain '
                          'MLP/GRU has no such layer, so the opening LR may be too hot and '
@@ -459,7 +427,7 @@ def run():
         if ntr > N:
             raise SystemExit(f"{LOG} n_train={ntr} exceeds pool size {N}")
     else:
-        # Same-pool split: the tail is the LAST nte shots, so the prefix must stop short.
+        # Same-pool split: the tail is the last nte shots, so the prefix must stop short.
         assert ntr <= N - nte, f"train/test overlap: ntr={ntr} > N-nte={N - nte}"
 
     m_tr = ztr['measurements'][0:ntr].astype(binary_t)
@@ -487,7 +455,7 @@ def run():
         # two files are not describing the same shots and every soft target is misaligned.
         if not np.array_equal(f_cache.reshape(-1), f_tr.reshape(-1)):
             raise SystemExit(f"{LOG} teacher cache `flips` disagree with the pool's -- "
-                             "the cache is misaligned with these shots. STOP.")
+                             "the cache is misaligned with these shots.")
         print(f"{LOG} teacher cache ok: {ntr:,} shots, mean p_teacher={p_teach.mean():.5f}",
               flush=True)
 
@@ -523,9 +491,8 @@ def run():
     n_params = int(model.count_params())
     print(f"{LOG} {args.student} inputs={args.inputs} params={n_params:,}", flush=True)
 
-    # With --lr the LR is constant and the teacher's scheduler is deliberately NOT
-    # attached -- attaching it would silently overwrite the constant on every epoch and
-    # make the LR comparison measure the schedule instead of the LR.
+    # With --lr the rate is constant and the teacher's scheduler is not attached; it would
+    # overwrite the constant each epoch and turn an LR comparison into a schedule test.
     callbacks = []
     if args.lr is None:
         callbacks.append(tf.keras.callbacks.LearningRateScheduler(learning_rate_scheduler))
@@ -550,13 +517,10 @@ def run():
     base_rate = float(f_te.mean())
     beats_base = pL < base_rate
 
-    # MWPM baselines are NOT portable across tails. lookup_mwpm returns the baseline that
-    # was computed on the --data-dir pool's own tail (locally: 0.0518 on a 10k tail), which
-    # is a different number from the 200k-tail anchor. If the student was scored on a
-    # SEPARATE --test-pool, that stored baseline describes different shots and any ratio
-    # built from it is meaningless -- so refuse to emit one rather than write a plausible
-    # wrong number into a results CSV. Decode MWPM on the actual tail (eval_on_tail.py
-    # --mcnemar) and compare there. This exact confusion has already caused one real bug.
+    # MWPM baselines are tail-specific. lookup_mwpm returns the one computed on the
+    # --data-dir pool's own tail, so under an explicit --test-pool it describes different
+    # shots and no ratio from it is meaningful. Decode MWPM on the actual tail
+    # (eval_on_tail.py --mcnemar) instead.
     if args.test_pool:
         mwpm = None
         print(f"{LOG} --test-pool given: suppressing the stored MWPM ratio (baselines "
@@ -565,9 +529,8 @@ def run():
         mwpm = lookup_mwpm(args.data_dir, d, p, r)
 
     # --- distillation gap: how closely does the student track the teacher? ----------
-    # Agreement is measured on DECISIONS over the tail, which is the quantity that
-    # actually matters for deployment -- a student can differ in probability everywhere
-    # and still decode identically. Only computed when a tail teacher cache is supplied.
+    # Measured on decisions, not probabilities: a student can differ in probability
+    # everywhere and still decode identically. Needs a tail teacher cache.
     ag = {k: '' for k in ('agree_all', 'agree_ambiguous', 'agree_confident', 'n_ambiguous',
                           'frac_ambiguous', 'student_p_L_ambiguous', 'teacher_p_L_ambiguous',
                           'teacher_tail_p_L')}
@@ -646,7 +609,7 @@ def run():
 
     gap = '' if mwpm is None else (f'  MWPM(same-pool tail)={mwpm:.5f}  '
                                    f'ratio={pL / mwpm:.3f}x')
-    flag = '' if beats_base else '  <-- FAIL: p_L >= base rate (class collapse)'
+    flag = '' if beats_base else '  <-- fails: p_L >= base rate (class collapse)'
     print(f"{LOG} {tag}  p_L={pL:.5f}{gap}  base_rate={base_rate:.3f}"
           f"  agree_ambiguous={ag['agree_ambiguous']}{flag}"
           f"  ({epochs_ran} ep, {train_time:.0f}s)",

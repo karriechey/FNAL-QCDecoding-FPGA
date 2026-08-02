@@ -18,8 +18,13 @@
 set -euo pipefail
 
 RT="${RT:-$HOME/rcnn_threshold}"
-TAIL_POOL="$RT/pools/data_d5_p0.010_r3_TAIL200k.npz"
-OUT="$RT/rescored_ladder_TAIL200k_$(date -u +%Y%m%dT%H%M%SZ).csv"
+# The ladder's own tail: last 200k of the 10.2M pools_t200k file (n_total 10.2M =
+# 10M train + 200k tail). Scoring here rather than on pools/TAIL200k because the
+# 100k-5M rungs have no saved weights and can never be re-scored -- they already sit on
+# this tail, so this is the only tail every rung can share.
+POOL_DIR="${POOL_DIR:-pools_t200k}"
+TAIL_POOL="$RT/$POOL_DIR/data_d5_p0.010_r3.npz"
+OUT="$RT/rescored_ladder_${POOL_DIR}_$(date -u +%Y%m%dT%H%M%SZ).csv"
 NTE=200000
 PY="${PY:-python}"
 
@@ -38,7 +43,7 @@ if [ "${#WEIGHTS[@]}" -eq 0 ]; then
   exit 1
 fi
 
-echo "Re-scoring ${#WEIGHTS[@]} checkpoints on TAIL200k (MWPM re-decoded per run)."
+echo "Re-scoring ${#WEIGHTS[@]} checkpoints on the $POOL_DIR tail (MWPM re-decoded per run)."
 echo
 
 for w in "${WEIGHTS[@]}"; do
@@ -46,7 +51,7 @@ for w in "${WEIGHTS[@]}"; do
   $PY eval_on_tail.py \
     --weights "$w" \
     --d 5 --p 0.010 --rounds 3 --n-test "$NTE" \
-    --pool "$TAIL_POOL" --mcnemar --out-csv "$OUT" \
+    --pool "$TAIL_POOL" --data-dir "$RT/$POOL_DIR" --mcnemar --out-csv "$OUT" \
     2>&1 | grep -Ev "cuda_|Unable to register|^Total number|^Number of unique"
 done
 

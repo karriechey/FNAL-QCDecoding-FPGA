@@ -5,16 +5,14 @@
 # Phase 2 de-risk grid: does distillation beat hard-label training for the MLP student?
 # RUN ON EAF. Requires the seed-1 teacher caches from eaf_teacher_selection.sh.
 #
-# THE GRID
+# The grid:
 #   alpha in {0.0, 1.0} x seed in {0,1,2}  = 6 runs
 #     alpha=0.0 -> pure distillation (learns only from the teacher's soft output)
 #     alpha=1.0 -> pure hard labels   (control arm: what the architecture does alone)
-#   Three student seeds per arm, because a one-seed difference between the arms is not
-#   evidence of anything -- the whole question is whether the arms differ by more than
-#   seed scatter. Same code path for both arms (only --alpha changes), so the comparison
-#   cannot be confounded by two different trainers.
+#   Three seeds per arm: a one-seed gap is not evidence, the question is whether the
+#   arms differ by more than seed scatter. One code path, only --alpha changes.
 #
-# FIXED, NOT SWEPT (settled earlier, do not vary here)
+# Fixed, not swept (settled earlier):
 #   --lr 0.003          pinned by the LR de-risk; the inherited train_one.py scheduler is
 #                       deliberately NOT used (it opens at 1e-2 to kick the teacher's
 #                       zero-init state correlator, a layer the student does not have)
@@ -24,7 +22,7 @@
 #   fixed 50 epochs, no early stopping -- both arms get an identical budget, so neither
 #   can win by training longer
 #
-# SCORING
+# Scoring:
 #   --test-pool is the fresh 200k tail (gen-seed 43), disjoint from the training pool by
 #   construction. train_student.py suppresses the stored-baseline MWPM ratio for this
 #   pool; the valid comparison is MWPM = 0.049405, re-decoded on this same tail, and the

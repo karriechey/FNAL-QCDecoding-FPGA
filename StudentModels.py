@@ -25,25 +25,22 @@ The pool stores two per-shot arrays, each 72 wide:
   det_bits -- raw stabilizer measurement outcomes, 3 rounds x 24 stabilizers
   det_evts -- detector events, the round-to-round XOR of those outcomes
 
-These two have DIFFERENT layouts. det_evts is not 3x24: its 72 detectors span 4
-timesteps over 24 plaquette positions with unequal occupancy (12/24/24/12), because the
-first round detects only Z stabilizers and the last is derived from the data-qubit
-measurements. detector_sequence_layout() reads this off the stim circuit; the MLP
-flattens so it is unaffected, while the GRU consumes the scattered [4, 24] form.
-det_evts is what MWPM consumes and what the FPGA NN-decoder literature feeds its networks,
-so it is the default student input and the smallest one to route on-chip. The teacher sees
-BOTH arrays, so `--inputs evts+bits` exists to test whether that extra channel is carrying
-information the student needs; keeping it a flag makes "does the raw measurement channel
-matter" a measured result rather than an assumption baked into the architecture.
+The two differ in layout. det_evts is not 3x24: its 72 detectors span 4 timesteps over 24
+plaquette positions with unequal occupancy (12/24/24/12), since the first round detects
+only Z stabilizers and the last comes from the data-qubit measurements.
+detector_sequence_layout() reads this off the stim circuit. The MLP flattens and is
+unaffected; the GRU takes the scattered [4, 24] form.
 
-Output is a LOGIT （log-it), not a probability
-The final layer is linear and the sigmoid is NOT part of the model. Two reasons:
- 1. Distillation is defined in logit space (the temperature divides a logit), so a model
-    that natively emits logits needs no numerically lossy inversion of its own sigmoid.
- 2. sigmoid is monotonic, so thresholding the logit at 0 gives exactly the same decision
-    as thresholding the probability at 0.5. On FPGA the sigmoid is therefore pure cost
-    with zero effect on the decode, and dropping it saves a LUT/table.
-Convert with sigmoid() only when a calibrated probability is actually wanted.
+det_evts is the default input -- what MWPM consumes, and the smallest to route on-chip.
+The teacher sees both arrays, so `--inputs evts+bits` keeps "does the raw measurement
+channel matter" a measured question rather than an assumption.
+
+Output is a logit, not a probability
+The final layer is linear; the sigmoid is not part of the model. Distillation is defined
+in logit space, so emitting logits avoids inverting a sigmoid, and since sigmoid is
+monotonic, thresholding the logit at 0 is the same decision as thresholding p at 0.5 --
+on FPGA it would be pure cost. Apply sigmoid() only when a calibrated probability is
+wanted.
 
 Quantization hooks:
 weight_bits / act_bits default to None, which builds plain float Keras layers -- that is
@@ -62,19 +59,10 @@ from tensorflow.keras import Model
 def _patch_qkeras_recurrent_nest():
     """Restore tf.python.util.nest.is_sequence for QKeras 0.9's recurrent cells.
 
-    QKeras 0.9's QGRUCell/QLSTMCell call `nest.is_sequence(states)`. TensorFlow renamed
-    that helper to `nest.is_nested` and deleted the old alias, so on the repo's pinned
-    TF 2.15 every QGRU/QLSTM forward pass dies with
-
-        AttributeError: module 'tensorflow.python.util.nest' has no attribute 'is_sequence'
-
-    The two functions are the same predicate under different names, so aliasing the old
-    name back onto the module is a faithful fix, not a workaround that changes behaviour.
-    This is the same class of QKeras-vs-TF regression as the convert_to_npdtype one and
-    is likewise a candidate upstream patch.
-
-    Only installed if the attribute is genuinely absent, so a future QKeras or TF that
-    provides its own is left untouched.
+    QKeras 0.9's QGRUCell/QLSTMCell call `nest.is_sequence(states)`, which TensorFlow
+    renamed to `nest.is_nested`, so every QGRU/QLSTM forward pass dies on the pinned
+    TF 2.15. Same predicate under two names, so aliasing it back is faithful. Installed
+    only when the attribute is absent. Candidate upstream patch.
     """
     try:
         from tensorflow.python.util import nest as _nest
@@ -93,22 +81,16 @@ _LAYOUT_CACHE = {}
 def detector_sequence_layout(d, rounds, p):
     """Map the flat det_evts vector onto (timestep, plaquette position).
 
-    For rotated_memory_z at d=5, r=3 the 72 detectors are NOT 3 rounds x 24 stabilizers.
-    Reading the coordinates off the stim circuit gives 4 timesteps over 24 distinct (x,y)
-    plaquette positions, with unequal occupancy:
+    At d=5, r=3 the 72 detectors are not 3 rounds x 24 stabilizers but 4 timesteps over 24
+    plaquette positions, occupancy 12/24/24/12 (the first round detects only Z
+    stabilizers; the last comes from the data-qubit measurements).
 
-        t=0: 12 detectors    (first round: only the Z stabilizers detect)
-        t=1: 24
-        t=2: 24
-        t=3: 12             (final round, derived from the data-qubit measurements)
+    The short timesteps' positions are subsets of the full 24, so each timestep fits a
+    fixed 24-wide slot vector, zero where nothing was measured. Column j then means the
+    same plaquette at every timestep, and the input stays rectangular for hls4ml.
 
-    The short timesteps' positions are subsets of the full 24, so every timestep can be
-    written into a fixed 24-wide slot vector with zeros where nothing was measured. That
-    keeps column j meaning the same plaquette at every timestep, which is what makes the
-    recurrence meaningful, and keeps the input a fixed rectangular shape for hls4ml.
-
-    Returns (n_timesteps, n_positions, index_map) where index_map[t, j] is the detector
-    index for position j at timestep t, or -1 if that position is not measured then.
+    Returns (n_timesteps, n_positions, index_map); index_map[t, j] is the detector index
+    for position j at timestep t, or -1 if unmeasured.
     """
     key = (d, rounds, round(p, 6))
     if key in _LAYOUT_CACHE:
@@ -139,9 +121,8 @@ def detector_sequence_layout(d, rounds, p):
 def to_sequence(det_evts, d, rounds, p):
     """Scatter flat det_evts [N, n_det] into [N, n_timesteps, n_positions], zero-filled.
 
-    Done in numpy rather than as a Lambda/gather inside the model: the reordering is a
-    fixed wiring of the input buffer, so on FPGA it costs nothing, and hls4ml never has to
-    parse a gather.
+    In numpy rather than a Lambda/gather inside the model: the reordering is fixed input
+    wiring, free on FPGA, and hls4ml never sees a gather.
     """
     n_t, n_pos, index_map = detector_sequence_layout(d, rounds, p)
     ev = np.asarray(det_evts)
@@ -166,9 +147,8 @@ def input_width(d, rounds, inputs):
 def assemble_features(det_bits, det_evts, inputs, student='mlp', d=5, rounds=3, p=0.010):
     """Build the student's input array from the pool arrays, as float32.
 
-    Kept here rather than in the trainer so the model definition and the data layout it
-    expects can never drift apart. Cast to float32 because the int8 pool arrays would
-    otherwise be cast implicitly at every batch.
+    Kept beside the model definitions so layout and architecture cannot drift apart.
+    float32 avoids an implicit cast of the int8 pool arrays every batch.
 
     student='gru' returns [N, n_timesteps, n_positions]; anything else returns the flat
     [N, n_features] vector, where feature order is irrelevant to a Dense stack.
@@ -227,7 +207,7 @@ def _relu(name, act_bits):
 
 def build_mlp_student(d=5, rounds=3, inputs='evts', hidden=(128, 128),
                       weight_bits=None, act_bits=None, name='mlp_student'):
-    """Flatten-and-stack student. Returns a Keras Model emitting ONE LOGIT per shot."""
+    """Flatten-and-stack student, emitting one logit per shot."""
     n_feat = input_width(d, rounds, inputs)
     x_in = KL.Input(shape=(n_feat,), name='syndrome')
     h = x_in

@@ -23,10 +23,9 @@ import os
 import re
 
 
-# Directory -> what experiment it belongs to. Anything unlisted is reported as 'unknown'
-# rather than guessed at.
+# Directory -> experiment. Anything unlisted is reported as unknown rather than guessed.
 EXPERIMENT_BY_DIR = {
-    'diag_eaf': 'Diagnostics (determinism, smoke tests) -- NOT results',
+    'diag_eaf': 'Diagnostics (determinism, smoke tests) -- not results',
     'out': 'RCNN data-volume ladder (10k tail)',
     'out_t200k': 'RCNN data-volume ladder (200k tail)',
     'out_t200k_w': 'RCNN 10M retrain, weights saved',
@@ -36,6 +35,13 @@ EXPERIMENT_BY_DIR = {
     'out_q_phase2a': 'Teacher activation sweep (phase 2a)',
     'out_q_phase2a_relu5': 'Teacher activation sweep, ReLU I=5',
     'teacher': 'Teacher caches / tail scores',
+    'out_student_grid': 'Student hard-vs-soft grid (pools, 1M)',
+    'out_student_grid_pools': 'Student hard-vs-soft grid (pools, 1M)',
+    'out_student_grid_pools_t200k': 'Student hard-vs-soft grid (pools_t200k)',
+    'out_mlp': 'MLP student runs',
+    'out_gru': 'GRU student runs',
+    'out_mlp_ladder': 'MLP student data-volume ladder',
+    'out_gru_ladder': 'GRU student data-volume ladder',
 }
 
 

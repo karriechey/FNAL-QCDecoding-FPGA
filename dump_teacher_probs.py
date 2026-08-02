@@ -3,42 +3,24 @@
 # Last modified: 2026-07-29
 """Cache the FP32 teacher's per-shot output over a pool, for knowledge distillation.
 
-WHY THIS EXISTS
-The distillation student is trained on the TEACHER's outputs (soft labels), not only on
-the hard `flips` labels. Running the teacher's forward pass inside every student epoch
-would be wasteful and slow: the teacher is frozen, so its output for a given shot never
-changes across epochs or across student architectures. Computing it ONCE and caching it
-to disk means the student trainer is a plain supervised fit over arrays, and the same
-cache is reused by every student variant (MLP, GRU, every seed, every bit-width in the
-later quantization sweep).
+The teacher is frozen, so its output for a shot never changes across epochs, seeds or
+student architectures. Computing it once makes the student trainer a plain supervised fit
+and lets every student variant reuse one teacher pass.
 
-WHAT IT WRITES
-An .npz with, for the shots covered:
-  p_teacher      float32 [n]  teacher sigmoid output, i.e. P(logical flip) per shot
-  logit_teacher  float32 [n]  log(p/(1-p)), the pre-sigmoid score
-  flips          int8    [n]  the hard truth label, carried along so the student trainer
-                              needs exactly one file
-  shot_idx       int64   [n]  index of each shot back into the source pool
-Plus scalar metadata (d, p, rounds, kernel, hidden, hidden_layers, npol, weights path,
-pool path, n_start, n_shots) so a cache file is self-describing and can never be silently
-paired with the wrong pool or the wrong teacher.
+Writes an .npz containing, for the shots covered:
+  p_teacher      float32 [n]  teacher sigmoid output, P(logical flip) per shot
+  logit_teacher  float32 [n]  log(p/(1-p)), recovered in float64 before downcasting
+  flips          int8    [n]  truth label, so the trainer needs one file
+  shot_idx       int64   [n]  index back into the source pool
+plus metadata and fingerprints (see pool_fingerprint) that make a cache self-describing.
 
-WHY BOTH p AND logit
-The distillation loss softens the teacher with a temperature T, which is defined in
-LOGIT space (sigmoid(z/T)). Recovering z from a stored p as log(p/(1-p)) loses precision
-in the saturated tails, exactly where a confident teacher lives. The teacher's final
-layer here is a sigmoid, so we recover the logit from p in float64 before downcasting;
-that is still far more accurate than doing it later from a float32 p, and storing both
-means the student trainer never has to invert anything.
+Both p and its logit are stored because the distillation temperature acts in logit space
+and inverting a float32 p later loses precision in the saturated tails, where a confident
+teacher lives.
 
-DISJOINTNESS
-This script does NOT slice a train/test split -- it just dumps whatever shot range is
-asked for. Keeping the split logic in the trainer (where the existing asserts live)
-avoids a second, divergent copy of the disjointness rule. Dump the training prefix
-[0, n_train) for distillation; dump a tail range separately if you want the teacher's
-probabilities on the evaluation tail for gap analysis.
+Dumps whatever shot range is asked for and applies no train/test split; that logic stays
+in the trainer so there is only one copy of the disjointness rule.
 
-USAGE
   python dump_teacher_probs.py \
       --weights ~/rcnn_threshold/out_t200k_w/rcnn_d5_p0.010_r3_seed0_ntr10000000.weights.h5 \
       --d 5 --p 0.010 --rounds 3 --n-shots 1000000 \
@@ -51,11 +33,8 @@ import numpy as np
 
 
 def sha256_file(path, chunk=1 << 20):
-    """SHA-256 of a file on disk. Used to fingerprint the teacher checkpoint.
-
-    The .weights.h5 is a couple of hundred KB, so hashing it whole costs nothing, and it
-    is the single object that determines every soft target in the cache. If it changes,
-    the cache is stale even though nothing about the pool moved.
+    """SHA-256 of a file. Fingerprints the teacher checkpoint, which alone determines
+    every soft target in the cache; a couple of hundred KB, so hashing it whole is free.
     """
     h = hashlib.sha256()
     with open(path, 'rb') as f:
@@ -65,16 +44,12 @@ def sha256_file(path, chunk=1 << 20):
 
 
 def pool_fingerprint(pool_npz):
-    """Cheap identity fingerprint for a pool, WITHOUT hashing the multi-GB arrays.
+    """Identity fingerprint for a pool: (flips_sha256, measurements_shape_string).
 
-    Hashes the FULL `flips` array (10M shots = 10 MB of int8, a few milliseconds) and
-    records the `measurements` shape. flips is derived from the same generator draw as the
-    measurements, so two pools agreeing on every one of 10M labels AND on the measurement
-    shape are the same draw for every practical purpose. Deliberately does NOT touch
-    `measurements` or `det_evts` -- a full hash of those is ~1.7 GB of IO on every single
-    training run, which would be a real cost for a check that adds nothing here.
-
-    Returns (flips_sha256, measurements_shape_string).
+    Hashes `flips` (10 MB of int8, milliseconds) and records the `measurements` shape.
+    flips comes from the same generator draw as the measurements, so agreement on 10M
+    labels and on the shape means the same draw. The measurement arrays are left alone;
+    hashing them would be ~1.7 GB of IO per run for no extra assurance.
     """
     flips = np.ascontiguousarray(pool_npz['flips'])
     digest = hashlib.sha256(flips.tobytes()).hexdigest()
@@ -84,11 +59,9 @@ def pool_fingerprint(pool_npz):
 def recover_logit(p):
     """Invert the teacher's final sigmoid: z = log(p / (1-p)).
 
-    Done in float64 and with the probabilities clipped away from exactly 0 and 1, because
-    a fully-saturated prediction would otherwise give +/-inf and poison the distillation
-    loss. The clip bound is one float32 epsilon-ish step from the endpoints, which caps
-    |z| near 16 -- well beyond any temperature-softened value the student needs to match,
-    so the clip changes nothing about a normal shot and only tames the degenerate ones.
+    Float64, with p clipped off 0 and 1 so a saturated prediction gives a finite z. The
+    clip caps |z| near 16, beyond any value the student needs to match, so it affects only
+    degenerate shots.
     """
     p64 = np.asarray(p, dtype=np.float64).reshape(-1)
     eps = 1e-7
@@ -157,9 +130,8 @@ def run():
         raise SystemExit(f"[teacher] requested shots [{lo}, {hi}) exceed pool size {N}")
     sl = slice(lo, hi)
 
-    # Slice BEFORE the measurement split so we only materialise the shots we asked for.
-    # The full 10M pool is ~1 GB per array; dumping a 1M de-risk subset should not pay
-    # the memory cost of the whole thing.
+    # Slice before the measurement split so only the requested shots are materialised;
+    # the arrays are ~1 GB each at 10M.
     measurements = z['measurements'][sl].astype(binary_t)
     det_evts = z['det_evts'][sl].astype(binary_t)
     flips = z['flips'][sl].astype(binary_t)
@@ -184,10 +156,9 @@ def run():
     logit_teacher = recover_logit(p_teacher).astype(np.float32)
     truth = np.asarray(flips, dtype=np.int8).reshape(-1)
 
-    # Sanity: the teacher's own p_L on the dumped shots. If --n-start points at the
-    # training prefix this is an IN-SAMPLE number and must not be quoted as a result --
-    # it is printed only so an obviously broken load (p_L at the base rate, or a constant
-    # output) is caught here rather than after a student has been trained on garbage.
+    # The teacher's p_L on the dumped shots. In-sample when --n-start covers the training
+    # prefix, so not a result; printed to catch a broken load (p_L at the base rate, or a
+    # constant output) before a student trains on it.
     teacher_pred = (p_teacher > 0.5).astype(np.int8)
     pL_insample = float((teacher_pred != truth).mean())
     base_rate = float(truth.mean())

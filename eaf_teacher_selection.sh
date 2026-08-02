@@ -9,19 +9,17 @@
 # What it does, in order:
 #   0. Print the pool fingerprints, so a cache built elsewhere can be checked against
 #      these pools before being trusted.
-#   1. Score all three FP32 teacher checkpoints (seeds 0/1/2) on the FRESH 200k tail,
-#      with --mcnemar so MWPM is re-decoded on that same tail rather than read from a
-#      stored column. Baselines are tail-specific; the pools/mwpm_baseline.csv value
-#      (0.0518, a 10k tail) does not describe this tail.
-#   2. Report the three tail p_L values so the MEDIAN teacher can be designated as the
-#      paper's teacher. Median, not best: picking the best of three on the same tail the
-#      students are later scored on would select a favourable draw and leak it into every
-#      downstream number.
+#   1. Score all three FP32 teacher checkpoints on the 200k tail with --mcnemar, so
+#      MWPM is re-decoded there rather than read from a stored column. Baselines are
+#      tail-specific.
+#   2. Report the three tail p_L values so the median teacher can be designated.
+#      Median, not best: picking the best of three on the tail the students are later
+#      scored on would select a favourable draw and leak it downstream.
 #   3. Build the teacher caches for the designated teacher -- the 1M training prefix and
 #      the 200k tail. The tail cache is what enables the ambiguous-band agreement columns.
 #
-# This script does NOT pick the teacher for you. It prints the three numbers and stops;
-# set TEACHER_SEED and re-run with BUILD_CACHES=1 once the median is known.
+# Prints the three numbers and stops; set TEACHER_SEED and re-run with BUILD_CACHES=1
+# once the median is known.
 #
 # Usage on EAF:
 #   bash eaf_teacher_selection.sh                      # steps 0-2, scoring only
@@ -36,7 +34,18 @@ TAIL_POOL="$POOLS/data_d5_p0.010_r3_TAIL200k.npz"     # gen-seed 43, disjoint fr
 WDIR="$RT/out_t200k_w"
 OUTDIR="$RT/teacher"
 NTE=200000
-NTR=1000000
+NTR="${NTR:-10000000}"     # one prefix cache covers every ladder rung, since rungs nest
+
+# Where the evaluation tail lives. pools_t200k carries its own tail as the last 200k of
+# the training file (n_total 10.2M = 10M train + 200k tail); pools/ uses the separate
+# gen-seed-43 TAIL200k file starting at 0.
+if [ -f "$RT/$POOL_DIR/data_d5_p0.010_r3_TAIL200k.npz" ]; then
+  TAIL_SRC="$RT/$POOL_DIR/data_d5_p0.010_r3_TAIL200k.npz"
+  TAIL_START=0
+else
+  TAIL_SRC="$TRAIN_POOL"
+  TAIL_START=$(( $(  $PY -c "import numpy as np,sys;print(np.load(sys.argv[1])['measurements'].shape[0])" "$TRAIN_POOL" ) - NTE ))
+fi
 PY="${PY:-python}"
 
 mkdir -p "$OUTDIR"
@@ -115,10 +124,10 @@ $PY dump_teacher_probs.py --weights "$W" \
 # The tail cache covers the WHOLE fresh tail pool: that file is 200k shots of pure
 # evaluation data, so the range is [0, 200000) of THAT file, not a slice of the training
 # pool. train_student.py checks the cache length equals --n-test before using it.
-echo "--- 200k evaluation tail (from the TAIL pool) ---"
+echo "--- 200k evaluation tail (shots [$TAIL_START, $((TAIL_START+NTE))) of $(basename "$TAIL_SRC")) ---"
 $PY dump_teacher_probs.py --weights "$W" \
-  --d 5 --p 0.010 --rounds 3 --n-start 0 --n-shots "$NTE" \
-  --pool "$TAIL_POOL" --out "$OUTDIR/teacher_seed${S}_tail${NTE}_${POOL_DIR}.npz"
+  --d 5 --p 0.010 --rounds 3 --n-start "$TAIL_START" --n-shots "$NTE" \
+  --pool "$TAIL_SRC" --out "$OUTDIR/teacher_seed${S}_tail${NTE}_${POOL_DIR}.npz"
 
 echo
 echo "Done. The grid can now run with:"
