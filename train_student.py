@@ -576,7 +576,9 @@ def run():
               f"{tag}.superseded_{stamp}.*", flush=True)
 
     fields = ['architecture', 'student', 'inputs', 'd', 'p', 'rounds', 'seed', 'n_train',
-              'n_test', 'alpha', 'temperature', 'lr', 'weight_bits', 'act_bits', 'n_params',
+              'n_test', 'alpha', 'temperature', 'lr', 'weight_bits', 'act_bits',
+              # architecture size, so a row is interpretable without parsing its tag
+              'hidden', 'units', 'n_params',
               'epochs', 'epochs_ran', 'batch_size', 'p_L', 'mwpm_p_L', 'ratio_vs_mwpm',
               'base_rate', 'beats_base_rate', 'teacher_tail_p_L',
               # agreement: the raw rate is dominated by the ~80% of shots where this
@@ -594,6 +596,8 @@ def run():
             lr=('teacher_schedule' if args.lr is None else args.lr),
             weight_bits=('' if args.weight_bits is None else args.weight_bits),
             act_bits=('' if args.act_bits is None else args.act_bits),
+            hidden='-'.join(str(h) for h in args.hidden) if args.hidden else '',
+            units=(args.units if args.student == 'gru' else ''),
             n_params=n_params, epochs=args.epochs, epochs_ran=epochs_ran,
             batch_size=args.batch_size, p_L=round(pL, 6),
             mwpm_p_L=('' if mwpm is None else round(mwpm, 6)),

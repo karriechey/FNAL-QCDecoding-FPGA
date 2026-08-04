@@ -109,6 +109,9 @@ import csv, glob, os, sys, statistics as st, collections
 outdir, summary_path = sys.argv[1], sys.argv[2]
 rows = []
 for f in sorted(glob.glob(os.path.join(outdir, 'ladder_*.csv'))):
+    # Archived collisions keep the ladder_ prefix; including them would count a seed twice.
+    if '.superseded_' in os.path.basename(f):
+        continue
     rows += list(csv.DictReader(open(f)))
 
 # Every per-run row in one file, so the whole ladder is a single download. The per-run
