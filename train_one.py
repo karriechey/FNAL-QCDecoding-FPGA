@@ -89,6 +89,23 @@ def run():
     ap.add_argument('--save-weights', dest='no_save_weights', action='store_false')
     ap.add_argument('--no-early-stopping', action='store_true',
                     help='fixed --epochs, no EarlyStopping (ladder wants a fixed budget).')
+    # --- explicit validation (Option A). Without these the original validation_split
+    # behaviour is unchanged, so every earlier r=3 run reproduces exactly. ---
+    ap.add_argument('--pool', default=None,
+                    help='explicit pool npz, overriding the --data-dir name convention')
+    ap.add_argument('--val-start', type=int, default=None,
+                    help='first shot of a DEDICATED validation block, disjoint from the '
+                         'training prefix. Set with --val-n to pass validation_data '
+                         'explicitly and disable validation_split.')
+    ap.add_argument('--val-n', type=int, default=None, help='size of that block')
+    ap.add_argument('--seal-test', action='store_true',
+                    help='do not evaluate the final tail. Under the Option A layout the '
+                         'last --n-test shots ARE the sealed test partition, so the '
+                         'post-training evaluation would read it. Report validation p_L '
+                         'instead and score the test set once, later, after selection.')
+    ap.add_argument('--ckpt-dir', default=None,
+                    help='write best-validation and true final-epoch checkpoints here')
+    ap.add_argument('--run-tag', default=None, help='prefix for checkpoint filenames')
     ap.add_argument('--cpu', action='store_true', help='hide GPU, run on CPU.')
     args = ap.parse_args()
 
@@ -108,7 +125,7 @@ def run():
     ntr, nte = args.n_train, args.n_test
     binary_t, time_t, idx_t, packed_t = get_types(d, rounds, k)
 
-    fn = os.path.join(args.data_dir, f'data_d{d}_p{p:.3f}_r{rounds}.npz')
+    fn = args.pool or os.path.join(args.data_dir, f'data_d{d}_p{p:.3f}_r{rounds}.npz')
     if not os.path.exists(fn):
         raise SystemExit(f"[train] MISSING {fn} -- run generate_pools.py first. STOP.")
     z = np.load(fn)
@@ -123,6 +140,21 @@ def run():
     tr = slice(0, ntr)
     assert ntr <= N - nte, f"train/test overlap: ntr={ntr} > N-nte={N - nte}"
 
+    # Explicit validation block, disjoint from both the training prefix and the tail.
+    val_data = None
+    if args.val_start is not None:
+        if args.val_n is None:
+            raise SystemExit('[train] --val-start requires --val-n')
+        v0, v1 = args.val_start, args.val_start + args.val_n
+        if v0 < ntr:
+            raise SystemExit(f'[train] validation [{v0}, {v1}) overlaps the training '
+                             f'prefix [0, {ntr}) -- not disjoint')
+        if v1 > N:
+            raise SystemExit(f'[train] validation [{v0}, {v1}) exceeds pool size {N}')
+        val_data = ([det_bits[v0:v1], det_evts[v0:v1]], flips[v0:v1])
+        print(f"[train] partitions: train [0, {ntr:,})  validation [{v0:,}, {v1:,})  "
+              f"(validation_split disabled)", flush=True)
+
     set_seeds(seed)
     model = FullRCNNModel(
         'ZL', d, k, rounds, [args.hidden for _ in range(args.hidden_layers)],
@@ -133,21 +165,47 @@ def run():
     n_params = int(model.count_params())
 
     callbacks = [tf.keras.callbacks.LearningRateScheduler(learning_rate_scheduler)]
+    if args.ckpt_dir:
+        os.makedirs(args.ckpt_dir, exist_ok=True)
+        ck = os.path.join(args.ckpt_dir, (args.run_tag or 'run'))
+        # Best-by-validation, written whenever val_loss improves.
+        callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+            ck + '.best.weights.h5', monitor='val_loss', mode='min',
+            save_best_only=True, save_weights_only=True, verbose=0))
+
+        # The TRUE final-epoch weights. EarlyStopping(restore_best_weights=True) swaps the
+        # best weights back in when fit() returns, so anything saved after fit() is the
+        # best, not the last. Writing every epoch means the final write is genuinely the
+        # last epoch's state.
+        class _SaveLastEpoch(tf.keras.callbacks.Callback):
+            def on_epoch_end(self, epoch, logs=None):
+                self.model.save_weights(ck + '.lastepoch.weights.h5')
+        callbacks.append(_SaveLastEpoch())
     if not args.no_early_stopping:
         callbacks.insert(0, tf.keras.callbacks.EarlyStopping(
             monitor='val_loss', patience=args.patience, restore_best_weights=True))
 
     t0 = time.time()
+    fit_kw = (dict(validation_data=val_data) if val_data is not None
+              else dict(validation_split=args.val_split))
     hist = model.fit(
         x=[det_bits[tr], det_evts[tr]], y=flips[tr],
         batch_size=args.batch_size, epochs=args.epochs,
-        validation_split=args.val_split, shuffle=True, verbose=2, callbacks=callbacks)
+        shuffle=True, verbose=2, callbacks=callbacks, **fit_kw)
     train_time = time.time() - t0
     epochs_ran = len(hist.history['loss'])
     best_val = float(min(hist.history['val_loss']))
 
-    pred = model.predict([det_bits[te], det_evts[te]], batch_size=args.batch_size, verbose=0)
-    truth = flips[te]
+    if args.seal_test:
+        # score the dedicated validation block; the sealed test partition is never read
+        v0, v1 = args.val_start, args.val_start + args.val_n
+        ev = slice(v0, v1)
+        print(f"[train] --seal-test: reporting p_L on validation [{v0:,}, {v1:,}); "
+              f"the test partition is not read", flush=True)
+    else:
+        ev = te
+    pred = model.predict([det_bits[ev], det_evts[ev]], batch_size=args.batch_size, verbose=0)
+    truth = flips[ev]
     pL = float((truth != (pred > 0.5).astype(binary_t)).mean())
     base_rate = float(truth.mean())                 # all-zero predictor's error on the tail
     mwpm = lookup_mwpm(args.data_dir, d, p, rounds)
@@ -179,6 +237,36 @@ def run():
     # Opt-in with --save-weights; the .weights.h5 name carries the full config so a loader
     # can reconstruct the identical architecture. (This is the thing whose absence forced
     # the ~17 GPU-hr retrain for the 200k-tail re-measurement.)
+    if args.ckpt_dir:
+        # After fit(), restore_best_weights has already put the best weights back, so this
+        # is the best-validation state. Saved under its own name and byte-compared against
+        # the checkpoint the callback wrote, so the two files cannot be silently confused.
+        ck = os.path.join(args.ckpt_dir, (args.run_tag or 'run'))
+        model.save_weights(ck + '.best_restored.weights.h5')
+
+        # Compare weight VALUES, not file bytes: two HDF5 files holding identical arrays
+        # differ byte-wise, so hashing them would prove nothing either way.
+        def _vals(path):
+            probe = FullRCNNModel(
+                'ZL', d, k, rounds, [args.hidden for _ in range(args.hidden_layers)],
+                npol=args.npol, stop_round=None, has_nonuniform_response=False,
+                do_all_data_qubits=False, return_all_rounds=False)
+            _ = probe([det_bits[0:1], det_evts[0:1]])
+            probe.load_weights(path)
+            return [w.numpy() for w in probe.weights]
+
+        def _same(a, b):
+            return all(np.array_equal(x, y) for x, y in zip(a, b))
+
+        best_w = _vals(ck + '.best.weights.h5')
+        last_w = _vals(ck + '.lastepoch.weights.h5')
+        rest_w = _vals(ck + '.best_restored.weights.h5')
+        print(f"[train] checkpoint identity: best==best_restored {_same(best_w, rest_w)}  "
+              f"best==lastepoch {_same(best_w, last_w)}", flush=True)
+        if not _same(best_w, rest_w):
+            print("[train]   WARNING: restore_best_weights did not leave the best weights "
+                  "in the model. Use the .best checkpoint, not .best_restored.", flush=True)
+
     if not args.no_save_weights:
         wpath = os.path.join(args.out_dir, tag + '.weights.h5')
         model.save_weights(wpath)
