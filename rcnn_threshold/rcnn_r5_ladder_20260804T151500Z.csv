@@ -1,0 +1,4 @@
+source,seed,n_train,n_test,p_L,mwpm_validation,ratio_vs_mwpm,p_L_run_reported,rescore_changed_p_L,n_params,epochs_ran,base_rate,pool,weights
+best_ckpt_rescored,0,10000000,200000,0.091355,0.084215,1.0848,0.091355,0,69485,44,0.35539,data_d5_p0.010_r5_FORMAL.npz,r5_teacher_seed0.best.weights.h5
+best_ckpt_rescored,1,10000000,200000,0.08423,0.084215,1.0002,0.08423,0,69485,50,0.35539,data_d5_p0.010_r5_FORMAL.npz,r5_teacher_seed1.best.weights.h5
+best_ckpt_rescored,2,10000000,200000,0.08571,0.084215,1.0178,0.08571,0,69485,43,0.35539,data_d5_p0.010_r5_FORMAL.npz,r5_teacher_seed2.best.weights.h5
