@@ -110,6 +110,11 @@ def run():
     ap.add_argument('--pool', default=None,
                     help='explicit pool npz (overrides --data-dir/name); e.g. a fresh '
                          'disjoint tail. te=slice(N-n_test, N) over THIS file.')
+    ap.add_argument('--eval-start', type=int, default=None,
+                    help='first shot index to score. Default None = the last --n-test '
+                         'shots (the sealed tail). Set this to score a different slice, '
+                         'e.g. the validation partition, so model selection never touches '
+                         'the tail.')
     ap.add_argument('--out-csv', default=None, help='append a result row here')
     ap.add_argument('--mcnemar', action='store_true',
                     help='also decode MWPM on the same tail and run the paired McNemar test')
@@ -147,7 +152,14 @@ def run():
     flips = z['flips'].astype(binary_t)
     det_bits, _, _ = split_measurements(measurements, d, idx_t)
     N = measurements.shape[0]
-    te = slice(N - nte, N)
+    if args.eval_start is None:
+        te = slice(N - nte, N)                       # the sealed tail
+    else:
+        if args.eval_start + nte > N:
+            raise SystemExit(f"[eval] --eval-start {args.eval_start} + n-test {nte} "
+                             f"exceeds pool size {N}")
+        te = slice(args.eval_start, args.eval_start + nte)
+    print(f"[eval] scoring shots [{te.start:,}, {te.stop:,})", flush=True)
 
     hidden = [args.hidden for _ in range(args.hidden_layers)]
     if args.weight_bits is None or args.weight_bits >= 32:
@@ -206,10 +218,10 @@ def run():
     # With an explicit --pool the lookup describes different shots, so the baseline and
     # ratio are withheld rather than written wrong. p_L is unaffected either way.
     mwpm_source = 'redecoded_on_tail' if args.mcnemar else 'stored_baseline'
-    stale_for_this_tail = bool(args.pool) and not args.mcnemar
+    stale_for_this_tail = (bool(args.pool) or args.eval_start is not None) and not args.mcnemar
     if stale_for_this_tail:
-        gap = ('  MWPM=SUPPRESSED (--pool given without --mcnemar: the stored baseline '
-               'describes a different tail; re-run with --mcnemar for a valid ratio)')
+        gap = ('  MWPM=suppressed (scored a non-tail slice without --mcnemar; the stored '
+               'baseline describes different shots)')
     elif mwpm_tail is None:
         gap = ''
     else:
