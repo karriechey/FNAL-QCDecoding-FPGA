@@ -6,8 +6,7 @@
 Why train a student model?
 The teacher (CNNModel.FullRCNNModel) cannot be parsed by hls4ml's automated QKeras flow:
 its state-combiner math uses pow/sqrt/log/gather ops that sit outside hls4ml's supported
-layer set. That is the synthesis blocker, and no amount of quantizing the teacher
-removes it. A student built only from layers hls4ml supports is synthesizable by
+layer set. A student built only from layers hls4ml supports is synthesizable by
 construction, and the combiner math is never implemented in HLS at all -- it survives
 only as the supervision signal that shaped the student's weights.
 
@@ -23,7 +22,7 @@ Both consume the same per-shot syndrome information as the teacher and emit one 
 Input layout (d=5, r=3)
 The pool stores two per-shot arrays, each 72 wide:
   det_bits -- raw stabilizer measurement outcomes, 3 rounds x 24 stabilizers
-  det_evts -- the stim detector vector
+  det_evts -- detector events, the round-to-round XOR of those outcomes
 
 The two differ in layout. det_evts is not 3x24: its 72 detectors span 4 timesteps over 24
 plaquette positions with unequal occupancy (12/24/24/12), since the first round detects
@@ -31,21 +30,9 @@ only Z stabilizers and the last comes from the data-qubit measurements.
 detector_sequence_layout() reads this off the stim circuit. The MLP flattens and is
 unaffected; the GRU takes the scattered [4, 24] form.
 
-Neither array contains the other. Only the middle detectors are the round-to-round XOR of
-det_bits; the initial and final boundary slices are not. The final 12 (timestep 3) involve
-the data-qubit measurements, which det_bits does not carry -- measured on 400k pool shots,
-388 of 739 repeated det_bits patterns have differing det_evts, and every disagreement
-falls in indices 60-71. Adding data_bits removes all of them.
-circuit_partition.translate_det_bits_to_det_evts() takes final_det_evts as a separate
-argument for this reason.
-
-So det_bits carries the absolute per-round outcomes that det_evts discards, and det_evts
-carries boundary information det_bits lacks. `--inputs evts+bits` is a union of two
-non-redundant channels, not a superset of one.
-
-det_evts alone is the default: it is what MWPM consumes, the smallest to route on-chip,
-and the only channel the GRU can take (det_bits has a different time base, 3 rounds
-against 4 detector timesteps).
+det_evts is the default input -- what MWPM consumes, and the smallest to route on-chip.
+The teacher sees both arrays, so `--inputs evts+bits` keeps "does the raw measurement
+channel matter" a measured question rather than an assumption.
 
 Output is a logit, not a probability
 The final layer is linear; the sigmoid is not part of the model. Distillation is defined
