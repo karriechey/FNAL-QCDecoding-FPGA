@@ -231,7 +231,9 @@ def run():
           f"RCNN p_L={pL:.5f}{gap}  base_rate={base_rate:.3f}", flush=True)
 
     if args.dump_per_shot:
-        tail_idx = np.arange(N - nte, N)              # shot indices into the pool
+        # indices of the shots actually scored, which is not the tail when --eval-start
+        # selected another slice
+        tail_idx = np.arange(te.start, te.stop)
         dump = dict(
             tail_idx=tail_idx,
             truth=truth.astype(np.int8),              # true logical flip, per shot
@@ -240,6 +242,7 @@ def run():
             rcnn_prob=pred.reshape(-1).astype(np.float32),   # raw sigmoid, for confidence
             det_evts=det_evts[te].astype(np.int8),    # per-shot detector-event pattern
             d=d, p=p, rounds=r, n_test=nte,
+            eval_start=te.start, eval_stop=te.stop,
         )
         if mc is not None:
             dump['mwpm_pred'] = mwpm_pred.astype(np.int8)

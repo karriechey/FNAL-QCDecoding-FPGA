@@ -372,6 +372,10 @@ def run():
     ap.add_argument('--pool', default=None, help='explicit training pool npz')
     ap.add_argument('--test-pool', default=None,
                     help='separate npz for a FRESH disjoint tail; strongly preferred')
+    ap.add_argument('--eval-start', type=int, default=None,
+                    help='first shot to score. Default None = the last --n-test shots. On '
+                         'a pool whose final block is the sealed test partition, set this '
+                         'to the validation start so the test set is never read.')
     ap.add_argument('--out-dir', default=None,
                     help='default: ~/rcnn_threshold/out_{student}, so MLP and GRU results '
                          'never land in the same directory')
@@ -469,7 +473,14 @@ def run():
     # --- evaluation tail ------------------------------------------------------------
     zte = np.load(args.test_pool) if args.test_pool else ztr
     Nte = zte['measurements'].shape[0]
-    te = slice(Nte - nte, Nte)
+    if args.eval_start is None:
+        te = slice(Nte - nte, Nte)
+    else:
+        if args.eval_start + nte > Nte:
+            raise SystemExit(f"{LOG} --eval-start {args.eval_start} + n-test {nte} "
+                             f"exceeds pool size {Nte}")
+        te = slice(args.eval_start, args.eval_start + nte)
+    print(f"{LOG} scoring shots [{te.start:,}, {te.stop:,})", flush=True)
     m_te = zte['measurements'][te].astype(binary_t)
     e_te = zte['det_evts'][te].astype(binary_t)
     f_te = zte['flips'][te].astype(binary_t).reshape(-1)
@@ -521,7 +532,7 @@ def run():
     # --data-dir pool's own tail, so under an explicit --test-pool it describes different
     # shots and no ratio from it is meaningful. Decode MWPM on the actual tail
     # (eval_on_tail.py --mcnemar) instead.
-    if args.test_pool:
+    if args.test_pool or args.eval_start is not None:
         mwpm = None
         print(f"{LOG} --test-pool given: suppressing the stored MWPM ratio (baselines "
               "are tail-specific). Decode MWPM on THIS tail to compare.", flush=True)
