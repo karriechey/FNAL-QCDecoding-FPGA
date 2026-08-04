@@ -7,7 +7,7 @@
 > Verified against `CNNModel_quantized.py`, `train_one_quantized.py`, `sweep_quantized.py`
 > at commit ≤`46079f5`.
 
-Methods note for the paper and for FPGA deployment (hls4ml). The integer/fractional split is a real
+Methods note for the paper and for hls4ml deployment. The integer/fractional split is a real
 FPGA design decision, not just a bit count — so it is stated explicitly.
 
 ---
@@ -19,7 +19,7 @@ and `sweep_quantized.py`. Produces `out_q/` and the Pareto in `RUN_LOG.md`.
 
 ## Method: QAT, weights-only, fake-quant forward pass
 
-This answers the collaborator's meeting question 1 directly (QAT vs post-training vs hybrid):
+This answers meeting question 1 directly (QAT vs post-training vs hybrid):
 
 - Trainable variables are stored **full-precision (FP32)**.
 - The **forward pass quantizes each weight tensor at its point of use** — `WeightQuant.q(w)`
@@ -135,12 +135,12 @@ with the observed collapse to p_L ≈ 0.128 at 2 bits.)
 | `quantized_relu(4)` | 0 | 4 | 0.0625 | [0, 0.9375] |
 | `quantized_relu(8)` | 0 | 8 | 2^-8   | [0, 0.996]  |
 
-## hls4ml / ap_fixed equivalent (the FPGA effort's language)
+## hls4ml / ap_fixed equivalent
 
 ap_fixed's integer field **includes** the sign bit, so it is `integer + 1`:
 
 - Weights (Part 1 + 2): `quantized_bits(B, 1, keep_negative=1)` ↔ `ap_fixed<B, 2>` (range ≈ [−2, +2))
 - Activations (Part 2 only): `quantized_relu(A)` ↔ `ap_ufixed<A, 0>` (range [0, 1))
 
-For the current weights-only result, the handoff to the FPGA effort is: **`ap_fixed<6, 2>` weights at
+For the current weights-only result, the resulting format is: **`ap_fixed<6, 2>` weights at
 the knee**, activations still FP32 pending Phase 2.

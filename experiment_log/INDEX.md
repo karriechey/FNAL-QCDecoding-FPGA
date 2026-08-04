@@ -1,7 +1,7 @@
 # Book-keeping — paper source material
 
 Everything needed to write the paper, in one place. Generated 2026-07-13.
-Organized around what the collaborator asked for in the 2026-07-09 meeting (points 3–7).
+Organized around the points raised in the 2026-07-09 meeting (points 3–7).
 
 **Rule of this folder:** it is a *reading* archive, not a working directory.
 Scripts still read/write the live `results/`, `logs/`, `plots/` at repo root.
@@ -41,7 +41,7 @@ Verified against the code, the experiment the paper actually reports is:
 - **Weights only.** No `quantized_relu`, no `QActivation` anywhere. Activations stay FP32.
 - **1-D sweep:** `WEIGHT_BITS = [8, 6, 4, 3, 2]` + FP32 anchor. There is **no `a_bits` axis**.
 - **QAT with a fake-quant forward pass:** FP32 master weights, quantized at point of use before
-  every matmul, straight-through gradients. *Not* post-training quantization. ← the collaborator's question 1.
+  every matmul, straight-through gradients. *Not* post-training quantization. ← meeting question 1.
 
 Consequence for the paper: the size numbers (201 KB → 12.6 KB) are **weight-storage only**, and
 activation quantization remains un-done (Phase 2). Say so explicitly.
@@ -57,7 +57,7 @@ Draft sections and the material that feeds each:
 | Architecture | `docs/RCNN_d5_r3_ladder_REFERENCE.md` §2 (FullRCNNModel, 51,547 params) |
 | Dataset / noise model | `docs/SWEEP_SUMMARY.md` (config table), `docs/RCNN_d5_r3_ladder_REFERENCE.md` |
 | Training details | `docs/RUN_LOG.md` "Fixed substrate" + `docs/SWEEP_SUMMARY.md` |
-| Quantization method | `docs/QUANTIZATION_SCHEME.md` (**the section the collaborator kept circling back to**) |
+| Quantization method | `docs/QUANTIZATION_SCHEME.md` (**the section the meeting kept returning to**) |
 | Performance results | `docs/RUN_LOG.md` Pareto table, `results_snapshot/`, `plots/` |
 | Hardware outlook | `docs/RUN_LOG.md` Phase 2 / Phase 3 plans |
 
@@ -79,7 +79,7 @@ Result: parity with MWPM around 5M, ~5% below MWPM at 10M, **no further gain at 
 (variance blows up ~5×) → structural floor by 10M, not data-limited.
 Figures: `plots/rcnn_d5_pl_vs_n_v2.png`, `plots/rcnn_d5_pl_vs_mwpm.png`.
 
-## Meeting point 6 — training details the collaborator wants recorded
+## Meeting point 6 — training details to record
 
 Pinned in `docs/RUN_LOG.md`; restated here because these are the exact numbers the paper needs:
 
@@ -112,7 +112,7 @@ Model size vs precision (weights-only QAT, from `docs/RUN_LOG.md`):
 Quantizer: `quantized_bits(B, 1)` weights-only = 1 sign + 1 integer + (B−2) fractional,
 range ≈ [−2, 2). Trainable variables stay FP32; the forward pass uses quantized weights
 → this is **QAT (fake-quant forward)**, not post-training quantization. That is the answer
-to the collaborator's question 1. Full detail + the sign-bit subtlety: `docs/QUANTIZATION_SCHEME.md`.
+to meeting question 1. Full detail + the sign-bit subtlety: `docs/QUANTIZATION_SCHEME.md`.
 
 ---
 
@@ -144,8 +144,8 @@ to the collaborator's question 1. Full detail + the sign-bit subtlety: `docs/QUA
    correct 0.04940, so published ratios are fine, but never compute xMWPM from the sweep
    CSVs' own column. Find the code path that wrote 0.0451. See `docs/RUN_LOG.md`.
 3. **Activation quantization (Phase 2) not run.** Current numbers are weights-only.
-4. **Per-layer fixed-point range profiling (Phase 3) not run** — needed for the FPGA effort's
-   `ap_fixed<B,I>` handoff.
+4. **Per-layer fixed-point range profiling (Phase 3) not run** — needed for the
+   `ap_fixed<B,I>` format table.
 5. `docs/EXPERIMENTS.md` has empty **Notes** fields and points at
    `results/results_scaling.csv`, which does not exist. Stale — trust `RUN_LOG.md` instead.
 
@@ -153,7 +153,7 @@ to the collaborator's question 1. Full detail + the sign-bit subtlety: `docs/QUA
 
 - `docs/` — the written record (moved from repo root)
   - `RUN_LOG.md` — the reproducibility ledger; **the authoritative one**
-  - `QUANTIZATION_SCHEME.md` — quantization methods note (paper section + the FPGA effort)
+  - `QUANTIZATION_SCHEME.md` — quantization methods note (paper section + FPGA deployment)
   - `RCNN_d5_r3_ladder_REFERENCE.md` — the EAF data-volume ladder study
   - `SWEEP_SUMMARY.md` — the earlier 31-hour CPU p_L-vs-N sweep
   - `EXPERIMENTS.md` — early tracking log (**stale**, see gap 5)

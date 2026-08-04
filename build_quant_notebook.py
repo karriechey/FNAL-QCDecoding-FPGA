@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Created: 2026-07-14
-# Last modified: 2026-07-20
+# Last modified: 2026-07-25
 """Emit QUANTIZATION_EXPERIMENTS.ipynb -- a LIVE lab notebook for the FullRCNNModel
-quantization work (weight + activation, toward FPGA/hls4ml for FPGA deployment).
+quantization work (weight + activation, toward FPGA/hls4ml deployment).
 
 Live = the code cells load the actual result files from ~/rcnn_threshold/out_q,
 out_q_mcnemar so the notebook re-derives every table/plot from disk on EAF (it does not
@@ -20,7 +20,7 @@ cells = []
 cells.append(md("""# FullRCNNModel Quantization — Lab Notebook
 
 **Goal.** Quantize the reference architecture's real `FullRCNNModel` surface-code decoder (d=5, r=3, p=0.010)
-toward FPGA deployment via hls4ml (FPGA deployment). Path B = Quantization-Aware
+toward FPGA deployment via hls4ml. Path B = Quantization-Aware
 Training with QKeras `quantized_bits` applied at point-of-use inside the custom `call()`
 methods (standard QDense substitution can't reach the reference architecture's hand-managed `add_weight`
 tensors). `CNNModel.py` stays byte-for-byte pristine; all quantization lives in
@@ -177,8 +177,12 @@ for i, b in enumerate(sorted(mc_all['bits'].unique())):
 fig.suptitle('Phase 1 knee: paired McNemar, RCNN vs MWPM, shot-by-shot on shared tail', y=1.02)
 out_png = './figures/mcnemar_knee.png'
 os.makedirs(os.path.dirname(out_png), exist_ok=True)
+# PNG for quick inline viewing in the notebook, PDF for the paper: the PDF is
+# vector, so it stays sharp at any print size (the 150-dpi PNG does not).
+out_pdf = out_png.replace('.png', '.pdf')
 fig.savefig(out_png, dpi=150, bbox_inches='tight')
-print('saved ->', out_png)
+fig.savefig(out_pdf, bbox_inches='tight')
+print('saved ->', out_png, 'and', out_pdf)
 plt.show()"""))
 
 cells.append(md("""**Result.** Every seed × every bit-width **beats** MWPM, paired-significant (worst
@@ -489,7 +493,7 @@ accuracy since the model is actively using the indefinite region) — and it is 
 - ~~Rerun B=6 with the p99.9 ReLU width to test whether the +0.0015 is the zero-fractional-width
   ReLU.~~ **Done — see Phase 2a-ReLU below. Hypothesis rejected.**
 - A genuine low-B datapoint needs the integer-width policy retuned; B=4 stays blocked by z-like.
-- Phase 4 owns the x-like tensors. Decide signed-LSE vs Gram-constrained c_φ **with the collaborator**."""))
+- Phase 4 owns the x-like tensors. Decide signed-LSE vs Gram-constrained c_φ before Phase 4 implementation."""))
 
 cells.append(md("""## Phase 2a-ReLU — decoder-ReLU width retune at B=6 (negative result)
 
@@ -550,8 +554,11 @@ ax.legend(fontsize=8, loc='upper left', framealpha=0.95)
 ax.grid(axis='y', alpha=0.3)
 os.makedirs('figures', exist_ok=True)
 out_png = 'figures/phase2a_relu_retune.png'
+# same PNG-for-screen / PDF-for-paper pair as the mcnemar_knee figure above
+out_pdf = out_png.replace('.png', '.pdf')
 fig.savefig(out_png, dpi=150, bbox_inches='tight')
-print('saved ->', out_png)
+fig.savefig(out_pdf, bbox_inches='tight')
+print('saved ->', out_png, 'and', out_pdf)
 print(f'abs-max deltas: {[round(v,5) for v in d_abs]}  mean {m_abs:+.5f}')
 print(f'retuned deltas: {[round(v,5) for v in d_ret]}  mean {m_ret:+.5f}')
 plt.show()'''))
@@ -567,7 +574,7 @@ cells.append(md("""## Provenance & status
 
 **Open:** Phase 0–3 and Phase 2a are DONE. Next: rerun B=6 with the p99.9 ReLU width
 (`ActQuant.set_relu_integer(4)`), then Phase 4 (log-domain / LSE) for the x-like tensors —
-which needs the signed-LSE vs Gram-constrained-c_φ decision made with the collaborator."""))
+which needs the signed-LSE vs Gram-constrained-c_φ decision made first."""))
 
 cells.append(code("""# git provenance for this work (run on the machine with the repo)
 # !git log --oneline -20 -- CNNModel_quantized.py train_one_quantized.py sweep_quantized.py \\

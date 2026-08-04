@@ -36,7 +36,7 @@ point — not a scalability or below-threshold claim.
 - **Benchmark:** MWPM (minimum-weight perfect matching, via PyMatching) — the standard
   classical decoder. The RCNN is trying to *match or beat* it.
 - **Bigger arc:** toward a paper (mentor **Gabriel Perdue**, SQMS) and eventually an
-  FPGA deployment of the real architecture via hls4ml (FPGA collaboration).
+  FPGA deployment of the real architecture via hls4ml.
 - **Platform:** Fermilab EAF, interactive pod, **NVIDIA A100 80GB in MIG mode** (we
   get a ~10 GB / 14-SM slice, ~1/7 of the card).
 
@@ -325,7 +325,7 @@ not 20M, is the right next step.
 
 **Q: What did it cost?**
 A: ~22 GPU-hr on the A100 MIG slice, run sequentially on the interactive pod (batch was
-blocked on a vault-authorization issue — separate escalation to the collaborator/Burt).
+blocked on a vault-authorization issue — separate escalation to EAF support).
 
 ---
 
@@ -343,7 +343,7 @@ and reuse `plot_pl_vs_n_gpu_v2.py --out-dir … --data-dir …`.
 ## 12. Work-update presentation outline (3 slides + backup)
 
 **Slide 1 — What & why (context)**
-- Continuing the reference architecture's RCNN surface-code decoder toward a paper (mentor: the collaborator Perdue).
+- Continuing the reference architecture's RCNN surface-code decoder toward a paper (advised work).
 - Question: can a learned decoder (RCNN) match the standard classical decoder (MWPM)?
 - This piece: reproduce the **learning curve** — logical error rate `p_L` vs how much
   training data — on the Fermilab EAF GPU, and extend it to 10M shots.
@@ -438,7 +438,7 @@ cd ~/QuantumDecoderQKeras && nohup bash run_ladder.sh > ~/rcnn_threshold/out/lad
 
 **E. If a big rung dies with CUDA out-of-memory:** add `--batch-size 5000` to that run.
 
-**F. Save weights so you never retrain just to re-measure** (the collaborator's advice; the fix for
+**F. Save weights so you never retrain just to re-measure** (raised in the 2026-07-09 meeting; the fix for
 the 17-hr-retrain tax). Add `--save-weights` to any `train_one.py` command → it writes
 `{tag}.weights.h5`. Then re-score that saved model on ANY tail with no training:
 ```bash

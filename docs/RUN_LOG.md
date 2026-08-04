@@ -1,10 +1,16 @@
-# QAT weight/activation quantization — RUN LOG
+# QAT weight/activation quantization — Run Log
 
-*Created: 2026-07-13 | Last modified: 2026-07-21*
+*Created: 2026-07-13 | Last modified: 2026-08-04*
 *Last verified against code: 8a21662, 2026-07-21*
 
-Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml handoff,
-FPGA deployment). One row per run: date, git SHA, command, host, result line.
+> **This is the single authoritative ledger for the quantization study.** A second
+> copy previously lived at `experiment_log/docs/RUN_LOG.md`, frozen at 2026-07-13.
+> It was merged into this file on 2026-08-04 and removed; the state it recorded that
+> is not otherwise captured here is preserved verbatim under
+> [Superseded snapshots](#superseded-snapshots) at the end.
+
+Reproducibility ledger for the FullRCNNModel quantization Pareto (FPGA / hls4ml
+deployment). One row per run: date, git SHA, command, host, result line.
 Rule: no result is "real" without git SHA + pool gen-seed + saved weights all pinned here.
 
 ## Fixed substrate (never regenerate)
@@ -15,7 +21,7 @@ Rule: no result is "real" without git SHA + pool gen-seed + saved weights all pi
   Positional split: `tr=slice(0,ntr)`, `te=slice(N-nte,N)`.
 - **Eval tail (all phases):** `~/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz`
   200k shots, gen-seed **43** (disjoint from training's 42). Built by `make_fresh_tail.py`.
-  THE eval substrate for every phase — do not regenerate, do not swap.
+  The eval substrate for every phase — do not regenerate, do not swap.
 - **FP32 anchor weights:** `~/rcnn_threshold/out_t200k_w/rcnn_d5_p0.010_r3_seed{0,1,2}_ntr10000000.weights.h5`
   (existing 10M FP32 models; reused, never retrained).
 - **Quantizer:** `quantized_bits(B, 1)` weights-only = 1 sign + 1 integer + (B-2) frac,
@@ -27,7 +33,7 @@ Rule: no result is "real" without git SHA + pool gen-seed + saved weights all pi
 
 ---
 
-## Phase 0 — implementation + gates (2026-07, DONE)
+## Phase 0 — implementation + gates (2026-07, done)
 
 - Path B QAT re-homed into `CNNModel_quantized.py`; `CNNModel.py` byte-for-byte pristine.
 - Gates: None-path == original (max|diff|=0.0); quantization bites; grads on 35 quantized
@@ -37,19 +43,19 @@ Rule: no result is "real" without git SHA + pool gen-seed + saved weights all pi
 - Clean FP32 anchor (fresh tail, 3 seeds): RCNN p_L 0.0462±0.0003 vs MWPM 0.0494;
   McNemar net +579..+775 wins, p~1e-21..1e-12 — significant beat.
 
-## Phase 1 — harden Exp 1 (referee-proof baseline)  [DONE 2026-07-13]
+## Phase 1 — harden Exp 1 (referee-proof baseline)  [done 2026-07-13]
 
 Objective: same-tail confirmation for every row + paired McNemar 2x2 at the knee (6, 8 bit)
 vs MWPM. Licenses "parity"/"beats" with discordant counts, not assertion.
 
-- Driver: `phase1_mcnemar.py` — retrained bits {6,8} × seeds {0,1,2} WITH --save-weights into
-  `~/rcnn_threshold/out_q_mcnemar/` (separate dir, does NOT clobber Pareto CSVs in out_q/),
+- Driver: `phase1_mcnemar.py` — retrained bits {6,8} × seeds {0,1,2} with --save-weights into
+  `~/rcnn_threshold/out_q_mcnemar/` (separate dir, does not clobber Pareto CSVs in out_q/),
   then `eval_on_tail.py --mcnemar --pool <fresh tail>` → `out_q_mcnemar/mcnemar_knee.csv`.
 - FP32 (32-bit) McNemar already in `out_q/fp32_anchor.csv` (sweep anchor ran --mcnemar).
 
 | date | git SHA | run | host | result |
 |------|---------|-----|------|--------|
-| 2026-07-13 | 46079f5 | w6/w8 × seed0,1,2 McNemar, fresh 200k tail | EAF (3 pods) | ALL 6 beat MWPM, paired-significant. |
+| 2026-07-13 | 46079f5 | w6/w8 × seed0,1,2 McNemar, fresh 200k tail | EAF (3 pods) | all 6 beat MWPM, paired-significant. |
 
 **Phase 1 McNemar result (`out_q_mcnemar/mcnemar_knee.csv`, MWPM p_L=0.049405 fresh tail):**
 
@@ -62,20 +68,20 @@ vs MWPM. Licenses "parity"/"beats" with discordant counts, not assertion.
 | 8 | 1 | 0.045645 | 0.924 | 3673 | 2921 | +752 | 2.1e-20 |
 | 8 | 2 | 0.046595 | 0.943 | 3683 | 3121 | +562 | 1.0e-11 |
 
-Every seed × every bit-width: RCNN wins MORE discordant shots than MWPM, paired McNemar
+Every seed × every bit-width: RCNN wins more discordant shots than MWPM, paired McNemar
 significant (worst p=5e-5 at w6/seed1 ≪ 0.05). Refutes "6-bit is inside test-set noise" —
-shot-by-shot, 6-bit weights BEAT MWPM, all 3 seeds. Claim upgrades from "6-bit at parity" to
+shot-by-shot, 6-bit weights beat MWPM, all 3 seeds. Claim upgrades from "6-bit at parity" to
 **"6-bit weights beat MWPM, paired-significant."** Scope: weights-only, activations FP32, r=3.
-NOTE: `w6_seed0` row is duplicated in the CSV (relaunch after a GPU-OOM race) — identical
+Note: `w6_seed0` row is duplicated in the CSV (relaunch after a GPU-OOM race) — identical
 values, cosmetic; dedup by (bits,seed). Weights saved: `out_q_mcnemar/*.weights.h5`.
 
-## Phase 2 — activation quantization sweep  [DESIGN FROZEN, verified against source]
+## Phase 2 — activation quantization sweep  [design frozen, verified against source]
 
-Site inventory + all `[V]` VERIFIED against CNNModel.py / utilities_arrayops.py:
+Site inventory + all `[V]` verified against CNNModel.py / utilities_arrayops.py:
 - `bound_zlike=12` → **z-like I=4** analytic (no profiling).
 - `clip_exp=[1/e^12, e^12]=[6e-6, 1.6e5]` → **x-like ~10 decades, un-quantizable in x-domain → Phase 4** (z-domain LSE rewrite or HLS LUT).
 - `phase_activation=tanh`, ×2 → **(−2,2) signed**; added to combiner sum → sum can go ≤0, rescued by `clip_exp` before `log`. Signed quadratic sᵀCs → not clean LSE.
-- clip applied to the **sum output** (`res=clip_zlike(res)`) → **quantize AFTER the clip**.
+- clip applied to the **sum output** (`res=clip_zlike(res)`) → **quantize after the clip**.
 - `frac=sigmoid`→p/f I=0; `cphi/alpha=tanh`→I=1; inverter/pow **dormant at r=3**; **inputs binary** (no aux real input).
 - StateDecoder = `Dense(100,relu)×2` + `Dense(1,sigmoid)` → **only dec_h1_out/dec_h2_out need profiling**.
 
@@ -86,29 +92,29 @@ Quantizer assignment (integer bits fixed by taxonomy; only relu I profiled):
 | p/f-like | unsigned qb | 0 | B_b ∈ {8,6,4} |
 | cφ/α-like | signed qb | 1 | B_b ∈ {8,6,4} |
 | relu hidden | quantized_relu | profiled | B_d ∈ {8,6} |
-| x-like | NONE (Phase 4) | — | — |
+| x-like | none (Phase 4) | — | — |
 
-Sweep = per-class budget (NOT a single global `a`), L-slice. Anchor = **w6/act-FP32** (not FP32/FP32).
+Sweep = per-class budget (not a single global `a`), L-slice. Anchor = **w6/act-FP32** (not FP32/FP32).
 Run tag encodes w + every activation B. Smoke test asserts: no NaN through log/sqrt post-quant.
 
-## Phase 3 — range profiling  [DONE 2026-07-14, 3 seeds, per-instance]
+## Phase 3 — range profiling  [done 2026-07-14, 3 seeds, per-instance]
 
 `profile_ranges.py` on the w6 model, all custom-layer instances wrapped (pure-wrap: p_L
-EXACT vs sweep all 3 seeds), clip sites keyed per instance (0 #agg of 91). Outputs
+exact vs sweep all 3 seeds), clip sites keyed per instance (0 #agg of 91). Outputs
 `profile_ranges_w6_seed{0,1,2}.json`; collate `collate_profile.py`.
 
-**STRUCTURAL RESULT (measured, 3 seeds) — phase matrix C definiteness:**
+**Structural result (measured, 3 seeds) — phase matrix C definiteness:**
 Measured n (state-count) + per-shot lambda_min(C) (C: diag 1, off-diag = actual c_phi):
 ```
   correlator   n   lambda_min(C)<0        combination<=0 (symptom)
   #0-#4        2   0.00% all seeds        0.00%     <- provably PSD; also proves C-assembly correct
   #5-#9        3   90-98% all seeds       2-19%
 ```
-The RCNN phase matrix is UNCONSTRAINED -> PSD for the n=2 (lead-in) correlators, indefinite
-~95% for the n=3 (recurrence) correlators. This is the CAUSE of the log-domain combination
-going <=0. Remedy is a Phase-4 CHOICE, NOT decided: (a) signed-LSE, or (b) constrain c_phi to
+The RCNN phase matrix is unconstrained -> PSD for the n=2 (lead-in) correlators, indefinite
+~95% for the n=3 (recurrence) correlators. This is the cause of the log-domain combination
+going <=0. Remedy is a Phase-4 choice, not decided: (a) signed-LSE, or (b) constrain c_phi to
 PSD (Gram parameterization) -> plain LSE works but needs retrain, may cost accuracy (model uses
-the indefinite region). n=2 correctness assert (lambda_min=1-|c|>0) PASSED. Necessity bound
+the indefinite region). n=2 correctness assert (lambda_min=1-|c|>0) passed. Necessity bound
 frac(lam<0)>=frac(nonpos) holds (n=2 fp-dust needs 1e-3 tol).
 
 **x-like un-quantizable (per instance, 3 seeds):** every CNNKernelWithEmbedding / CNNStateCorrelator
@@ -116,46 +122,46 @@ output has frac@B6<0, I(max) up to 17 (correlator #2 seed1: max 1.2e5). No ap_fi
 -> log-domain (Phase 4). x-like I moves wildly across seeds (irrelevant, un-quantizable).
 
 **Phase-2 bounded quantizer config (fixed_point_format_table, collate_profile.py section 4;
-seed-stable under max-across-seeds):** Detector{Bit,Event} embedders type 'embedding', PROFILED
+seed-stable under max-across-seeds):** Detector{Bit,Event} embedders type 'embedding', profiled
 I=1/2 (P, not cphi/alpha -- see correction below); combiners z-like I=4 (A); Triplet embedder +
 decoder sigmoid p/f I=0 (A); dec_in z-like I=4 (A); decoder relu dec_layer0 I=4 / dec_layer1 I=5
 (P, profiled). relRMSE@B6 mostly 2-8%.
 
 **Taxonomy correction (found by reading source + profiling):** the Detector{Bit,Event}StateEmbedder
-OUTPUTS are NOT cphi/alpha. embed_pol_state (CNNModel.py:653/824) returns (-1,1) diagonal sub-entries
-+ an UNBOUNDED non-diagonal polynomial Sum({x^2,x,1}*embedding_params) (params are exp/sigmoid of
-clip_zlike). So these outputs have no analytic bound -> PROFILED I (observed DetectorBit I=1,
-DetectorEvent I=2; the difference is learned-param magnitude, NOT a type difference or a "bound
+outputs are not cphi/alpha. embed_pol_state (CNNModel.py:653/824) returns (-1,1) diagonal sub-entries
++ an unbounded non-diagonal polynomial Sum({x^2,x,1}*embedding_params) (params are exp/sigmoid of
+clip_zlike). So these outputs have no analytic bound -> profiled I (observed DetectorBit I=1,
+DetectorEvent I=2; the difference is learned-param magnitude, not a type difference or a "bound
 violation"). An earlier draft mislabeled them cphi/alpha I=1 and reported a spurious "violation" --
-retracted. The one REAL analytic-bound finding is the +-24 z-sum accumulator below.
+retracted. The one real analytic-bound finding is the +-24 z-sum accumulator below.
 
-**Accumulator finding (Phase-4 HLS, NOT Phase-2):** zlike_preclip absmax = 43.5 / 41.1 / 72
-across seeds -- the z_e+z_m and correlator pre-clip accumulators EXCEED the assumed +-24;
+**Accumulator finding (Phase-4 HLS, not Phase-2):** zlike_preclip absmax = 43.5 / 41.1 / 72
+across seeds -- the z_e+z_m and correlator pre-clip accumulators exceed the assumed +-24;
 need I=7 (2^7=128). Post-clip z-like (the QAT quantizer target) stays ⊆+-12 -> I=4 valid.
 
-Deliverable: per-layer ap_fixed table = the numerical contract for the FPGA effort's HLS handoff.
+Deliverable: per-layer ap_fixed table = the numerical contract for HLS synthesis.
 
-## Phase 2a — activation-QAT build notes (pre-build decisions, NOT yet run)
+## Phase 2a — activation-QAT build notes (pre-build decisions, not yet run)
 
-**Decoder ReLU seeding decision (make it NOW, don't discover it):** seed ActQuant._int_bits for the
-two decoder ReLU sites (dec_layer0/1) at the ABS-MAX I=6 (safe, nothing clips) for the FIRST sweep,
-NOT the p99.9 I=4/5 in the format table. Reason: start at p99.9 and if Phase 2a trains badly you can't
-tell clip-loss from quant-loss. Start safe (I=6), tighten to p99.9 as an optimization ONCE the model
+**Decoder ReLU seeding decision (make it now, don't discover it):** seed ActQuant._int_bits for the
+two decoder ReLU sites (dec_layer0/1) at the abs-max I=6 (safe, nothing clips) for the first sweep,
+not the p99.9 I=4/5 in the format table. Reason: start at p99.9 and if Phase 2a trains badly you can't
+tell clip-loss from quant-loss. Start safe (I=6), tighten to p99.9 as an optimization once the model
 is confirmed to train. One-line change to the ActQuant seed.
 
-**Honest scope of Phase 2a:** it quantizes weights (6-bit) + the ~37 BOUNDED activation sites from the
-fixed_point_format_table; x-like intermediates stay FP32. So the output is a PARTIALLY quantized model
--- reportable (Fig 2: accuracy vs activation precision) but NOT synthesizable. The synthesizable model
-needs Phase 4 (x-domain LSE rewrite) -- that is the FPGA effort deliverable. Frame as "all bounded tensors
-quantized; exponential-domain intermediates addressed in Phase 4", NOT "model is now fixed-point".
+**Scope of Phase 2a:** it quantizes weights (6-bit) + the ~37 bounded activation sites from the
+fixed_point_format_table; x-like intermediates stay FP32. So the output is a partially quantized model
+-- reportable (Fig 2: accuracy vs activation precision) but not synthesizable. The synthesizable model
+needs Phase 4 (x-domain LSE rewrite). Frame as "all bounded tensors
+quantized; exponential-domain intermediates addressed in Phase 4", not "model is now fixed-point".
 
 **Predicted failure mode (mechanism, not a bug to hunt):** the straight-through estimator is shaky
-upstream of an exp (Δz -> e^Δ multiplicative). If the activation-bit sweep DIVERGES at low bits, that is
+upstream of an exp (Δz -> e^Δ multiplicative). If the activation-bit sweep diverges at low bits, that is
 the STE-through-exp mechanism, expected -- not a code bug.
 
 ---
 
-## Completed sweep — Step 2 Pareto (2026-07-10, DONE)
+## Completed sweep — Step 2 Pareto (2026-07-10, done)
 
 Driver `sweep_quantized.py`, n=3, fresh 200k tail, 10M shots. Fanned across 3 Named Servers.
 Collate `collate_pareto.py` → `plots/rcnn_d5_r3_qat_pareto.png`, `out_q/`.
@@ -164,7 +170,7 @@ Collate `collate_pareto.py` → `plots/rcnn_d5_r3_qat_pareto.png`, `out_q/`.
  bits  size_KB  mean_pL   comb_err   xMWPM   n
    32   201.4   0.04614   0.00056   0.934    3   (FP32 anchor, reused)
     8    50.3   0.04594   0.00053   0.930    3   lossless = FP32
-    6    37.8   0.04718   0.00056   0.955    3   KNEE — beats MWPM, paired-significant (Phase 1)
+    6    37.8   0.04718   0.00056   0.955    3   knee — beats MWPM, paired-significant (Phase 1)
     4    25.2   0.05464   0.00148   1.106    3   ~3.4σ above MWPM
     3    18.9   0.06116   0.00170   1.238    3
     2    12.6   0.12796   0.00709   2.590    3   collapsed
@@ -176,10 +182,10 @@ Sharp cliff 6→4. Variance blows up at low bits. Weights-only ceiling; Phase 2 
 
 ---
 
-## Phase 2a — activation-precision sweep (2026-07-19/20, DONE)
+## Phase 2a — activation-precision sweep (2026-07-19/20, done)
 
 Weights fixed at 6 bits (the Phase-1 knee); activation word length B swept over {32, 8, 6, 4},
-3 seeds, 10M training shots, fresh disjoint 200k tail. B=32 means activation quantization OFF and
+3 seeds, 10M training shots, fresh disjoint 200k tail. B=32 means activation quantization off and
 is the per-seed control. Driver `phase2a_sweep.py`, fanned across 3 EAF pods; collation
 `phase2a_collate.py`; paired tests `phase2a_mcnemar.py`.
 
@@ -212,7 +218,7 @@ seed 2  0.046565   0.045580   +0.0010     (was 0.05685 on the spiked run)
 ### Result: B=4 is infeasible by construction, not a measured accuracy limit
 
 All three B=4 seeds returned p_L = 0.28260 — exactly the tail's base rate — with val_loss pinned at
-0.5935 from epoch 1. The model emitted a constant and never trained. This is a fixed-point FORMAT
+0.5935 from epoch 1. The model emitted a constant and never trained. This is a fixed-point format
 failure, not a statement about 4-bit activations. The per-class integer widths leave negative
 fractional width at B=4: z-like is signed with I=4, so frac = 4−4−1 = −1, and the decoder ReLU is
 unsigned with I=6, so frac = 4−6 = −2 (representable values spaced 4 apart over [0,64), so every
@@ -231,7 +237,7 @@ every run. The threshold is frac < 0, not frac < 1: B=6 leaves the ReLU at frac 
 ### Result: paired McNemar on B=8 and B=6
 
 `phase2a_collate.py`'s within-seed p_L differences are descriptive only. The two runs decode the
-SAME 200k shots, so the correct test is paired McNemar on the discordant shots, as in Phase 1.
+same 200k shots, so the correct test is paired McNemar on the discordant shots, as in Phase 1.
 Aggregate differencing called B=8 "noise"; the paired test disagrees.
 
 ```
@@ -246,9 +252,9 @@ B=6 s2 +0.00109   -217   1.3e-03            +351   2.7e-05
 ```
 
 **B=8: no systematic cost, but not because the differences are noise.** Two of the three seeds are
-individually significant — and in OPPOSITE directions (seed 0 favours the control, seed 1 favours
+individually significant — and in opposite directions (seed 0 favours the control, seed 1 favours
 B=8). A real per-run difference whose sign flips across seeds is training-run variation, not a
-precision penalty. The honest claim is "no consistent cost at B=8", supported by the sign flip,
+precision penalty. The supportable claim is "no consistent cost at B=8", supported by the sign flip,
 rather than "the difference is within noise."
 
 **B=6: a real, consistent cost of about +0.0015.** All three seeds favour the control, all three
@@ -257,7 +263,7 @@ shows activation precision actually costing accuracy.
 
 **Versus MWPM at B=6 the margin becomes seed-dependent:** seeds 0 and 2 still beat MWPM
 (p = 1.3e-03, 2.7e-05), but seed 1 lands at p_L = 0.049400 against MWPM's 0.049405 — a net of one
-shot in 200k, a dead heat. So "6-bit weights AND 6-bit activations still beat MWPM" is not
+shot in 200k, a dead heat. So "6-bit weights and 6-bit activations still beat MWPM" is not
 supportable as stated; at B=8 it holds on all three seeds.
 
 Note B=6 leaves the decoder ReLU with zero fractional bits (resolution 1.0 on a [0,64) tensor) and
@@ -265,7 +271,7 @@ still costs only ~+0.0015 — a robustness result in its own right, and a concre
 rerunning B=6 with the p99.9 ReLU width (I=4, giving frac=2), which should recover part of that cost.
 
 The three seeds share one tail, so their tests are correlated. Read them as three consistent or
-inconsistent readings; do NOT Fisher-combine the p-values.
+inconsistent readings; do not Fisher-combine the p-values.
 
 ### MWPM baseline provenance (verified 2026-07-20)
 
@@ -290,14 +296,14 @@ out_q_phase2a/phase2a_mcnemar.csv     paired-test rows, both comparisons
 ### Open
 
 - ~~Rerun B=6 with the p99.9 ReLU width to test whether the +0.0015 cost is the zero-fractional-
-  width ReLU.~~ DONE 2026-07-21 (I=5) -- hypothesis rejected, see the retune subsection below.
+  width ReLU.~~ done 2026-07-21 (I=5) -- hypothesis rejected, see the retune subsection below.
 - A genuine low-B datapoint needs the integer-width policy retuned first; B=4 remains blocked by
   z-like's ±12 clip.
 - Phase 4 (log-domain / LSE rewrite) still owns the x-like tensors, which are left FP32 throughout.
 
 ---
 
-## Phase 2a — B=6 ReLU-width retune (2026-07-21, DONE, negative result)
+## Phase 2a — B=6 ReLU-width retune (2026-07-21, done, negative result)
 
 **Hypothesis.** The ~+0.0015 logical-error-rate cost at activation B=6 was caused primarily by the
 decoder ReLU having zero fractional bits under the abs-max format I=6, F=0.
@@ -308,7 +314,7 @@ to I=5, giving F=1, while leaving all other training and quantization settings u
 `ActQuant.set_relu_integer`), written to a separate `out_q_phase2a_relu5/` dir with the three act32
 controls copied in. The `relu_integer` value is recorded in a new CSV column; the `[actquant]` log
 line confirmed `relu=ap_ufixed<6,5>(frac=1)` with no zero-fractional-width warning. Paired McNemar
-via `phase2a_mcnemar.py --relu-integer 5` (the re-eval MUST rebuild with the same width, or retuned
+via `phase2a_mcnemar.py --relu-integer 5` (the re-eval must rebuild with the same width, or retuned
 weights load into the wrong-format graph).
 
 **Result.** The mean cost relative to each seed's act32 control changed from +0.00154 to +0.00176.
@@ -324,7 +330,7 @@ mean    +0.00154         +0.00176
 
 Retuned per-seed p_L: 0.049890 / 0.047995 / 0.047845 (differ from the abs-max runs, so the retune
 took effect -- not a no-op). Versus MWPM (0.049405): seed 0 landed at 0.049890, a dead heat
-(p_exact 0.26) -- i.e. on one seed the retune pushed slightly OVER MWPM; seeds 1 and 2 still beat it
+(p_exact 0.26) -- i.e. on one seed the retune pushed slightly over MWPM; seeds 1 and 2 still beat it
 (p_exact 7.9e-4, 2.1e-4).
 
 **Conclusion.** No improvement from the ReLU retune was detectable above run-to-run variation. The
@@ -337,3 +343,41 @@ retuned comparison).
 
 **Artifacts:** `out_q_phase2a_relu5/rcnn_d5_p0.010_r3_w6_a6_seed{0,1,2}_ntr10000000.{csv,history.json,weights.h5}`
 + the three copied `_a32_` controls + `phase2a_mcnemar_relu5.csv`.
+
+---
+
+## Superseded snapshots
+
+State from earlier revisions of this ledger, kept because the route to a result is
+itself part of the record. Nothing below is current; each entry says what replaced it.
+
+### 2026-07-13 — scope was weights-only
+
+Until Phase 2a ran (2026-07-19/20), this document covered weight quantization only,
+and carried the note: *"Title said weight/activation; corrected to weights-only —
+activation quantization is Phase 2 and has not been run."* The activation sweep has
+since been run, so the weight/activation title is now accurate. Anything citing this
+ledger before 2026-07-19 is citing the weights-only scope.
+
+### 2026-07-13 — Phase 1 partially complete
+
+At that date only the w6 arm had landed: 3/3 seeds beating MWPM on the shared 200k
+tail. The w8 arm was mid-flight — seed 2 training on pod `jupyter-kchey-seed2`
+(`phase1_s2.log`, 50 epochs, ~320 s/epoch), with seeds 0 and 1 not yet confirmed
+launched. While that was true, *"8-bit is lossless"* rested on mean-vs-mean only,
+with no paired test behind it. Superseded by the completed six-row Phase 1 table
+above, where all 6 (bits × seed) combinations are paired-significant.
+
+### 2026-07-13 to 2026-07-20 — MWPM baseline discrepancy, open
+
+The per-run sweep CSVs (`out_q/rcnn_*_w*_seed*.csv`) carry `mwpm_p_L = 0.0451`, while
+`fp32_anchor.csv` and `mcnemar_knee.csv` carry `0.049405` — same 200k tail, same
+config, two different numbers. It was flagged here as unresolved and blocking
+publication, with the note that the Pareto table used 0.04940 (correct — every
+mean_pL in it reproduces exactly from the per-run rows), so published ratios were
+unaffected, but that xMWPM must never be computed from the sweep CSVs' own column.
+
+Resolved 2026-07-20; see [MWPM baseline provenance](#mwpm-baseline-provenance-verified-2026-07-20).
+The 0.0451 comes from `train_one.lookup_mwpm()`, keyed only on (d, p, rounds) with no
+knowledge of which tail is evaluated. 0.049405 is an actual decode of these shots.
+The guidance not to use the sweep CSVs' column still stands.
