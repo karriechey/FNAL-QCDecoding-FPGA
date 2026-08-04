@@ -2,25 +2,20 @@
 """Generate the 8 CORE dataset pools for the across-threshold RCNN-vs-MWPM study,
 and compute the deterministic MWPM p_L baseline ONCE per (d,p) at generation time.
 
-Author: Claude (local Mac). Executor: you (EAF A10 pod). This runs CPU Stim sampling +
-a one-shot MWPM decode per pool; it does NOT train. Run it on the GPU pod (the GPU is
-simply idle during this step) or any CPU pod.
-
-Design (matches the trustworthy structure verified in the MWPM-trust goal):
   * rounds = d (threshold-figure convention; CHECKPOINT 0).
   * 4-channel noise, all four Stim channels = p, and the DEM is decoded 4-channel too --
-    identical circuit for generate AND decode, so nothing silently mis-baselines. This is
+    identical circuit for generate and decode, so nothing silently mis-baselines. This is
     the same circuit generate_datasets.gen_one builds.
   * One pool per (d,p): nested train prefixes tr=slice(0,ntr) come from the FRONT; the
-    fixed test tail te=slice(N-nte,N) is held out for every rung. They are DISJOINT:
+    fixed test tail te=slice(N-nte,N) is held out for every rung. They are disjoint:
     assert ntr_max == N - nte  (ntr_max is the top of the ladder = train capacity).
-  * N_test sized from the MEASURED MWPM p_L so the tail holds >=~500 residual errors.
+  * N_test sized from the measured MWPM p_L so the tail holds >=~500 residual errors.
 
 Outputs (to DATA_ROOT):
   data_d{d}_p{p:.3f}_r{d}.npz   -- measurements, det_evts, flips (int8), as the trainer expects
   mwpm_baseline.csv             -- one row per (d,p): the canonical MWPM p_L + diagnostics
 
-The trainer (benchmark_rcnn.py) reads the SAME filename pattern and the SAME 4-channel
+The trainer (benchmark_rcnn.py) reads the same filename pattern and the SAME 4-channel
 circuit, so its recomputed MWPM is deterministically identical to the value logged here.
 """
 import csv
@@ -30,8 +25,7 @@ import numpy as np
 from circuit_generators import get_builtin_circuit  # verified wrapper over stim.Circuit.generated
 
 # --- CONFIG -----------------------------------------------------------------------------
-# DATA_ROOT: where the ~10 GB of pools land. Home (26 GB free) fits the core grid.
-# Switch to an /exp path here if/when a worker-shared allocation is granted (Condor).
+# DATA_ROOT: where the ~10 GB of pools land.
 DATA_ROOT = os.path.expanduser("~/rcnn_threshold/pools")
 GEN_SEED = 12345          # fixed; recorded per pool for provenance
 CHUNK = 1_000_000         # sample in chunks to cap peak RAM on the 10M pools
@@ -52,10 +46,7 @@ POOLS = [
     (5, 0.007,  8_020_000, 20_000),
     (5, 0.010,  5_010_000, 10_000),
 ]
-# d=7 confirmation (p in {0.004,0.005}) is DEFERRED -- generated only after the core grid
-# lands and we've seen whether d=3/5 reproduce the crossing. Not in this list on purpose.
 # ----------------------------------------------------------------------------------------
-
 
 def build_circuit(d, p):
     """The 4-channel rotated_memory_z circuit at rounds=d (identical to gen + decode)."""
