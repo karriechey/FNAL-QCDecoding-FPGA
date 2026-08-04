@@ -2,8 +2,9 @@
 
 *Created: 2026-07-14 | Last updated: 2026-08-04*
 
-**Architecture:** the reference architecture Sarıca (https://github.com/usarica/FNAL-QCDecodingTests)  
+**RCNN Architecture:** the reference architecture Sarıca (https://github.com/usarica/FNAL-QCDecodingTests)  
 **Advisor:** Gabriel Perdue (https://github.com/gnperdue/FNAL-QCDecodingTests)  
+**hls4ml:** Giuseppe Di Guglielmo (https://github.com/fastmachinelearning/hls4ml)
 
 This repo contains the quantization pipeline, evaluation methodology, and
 hls4ml/FPGA-deployment characterization built on top of the RCNN architecture.
