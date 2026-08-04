@@ -1,12 +1,44 @@
+# Created: 2026-07-30
+# Last updated: 2026-08-04
 
 # Large regenerable data pools (Stim + gen-seed; NOT committed -- 16G). Regenerate via
 # generate_pools.py / make_fresh_tail.py, or pull from EAF ~/rcnn_threshold/.
 *.npz
+
+# Exception: the fixed 200k evaluation tail IS committed. Every reported p_L in this
+# repo is scored against this exact array, so without it the numbers can be re-run but
+# not reproduced. Keep it tracked deliberately, despite the *.npz rule above.
+!experiment_log/results_snapshot/eaf/rcnn_threshold/pools/data_d5_p0.010_r3_TAIL200k.npz
+
 .DS_Store
 *.log
 __pycache__/
 *.pyc
 
+# Python environment. The pinned TF 2.15 env is a uv .venv inside the repo; uv writes
+# its own ignore file in there, but do not rely on that -- rebuild the env without it
+# and the whole tree becomes stageable.
+.venv/
+
+# Jupyter autosave copies. Not research artefacts, and they shadow the real notebook.
+.ipynb_checkpoints/
+
+# Raw stdout from training and generation runs. Useful locally while a run is live;
+# meaningless to anyone else, and the same information is recorded in docs/RUN_LOG.md
+# and the per-run .history.json files.
+experiment_log/logs/
+
+# Crumble / detector-slice HTML dumps (~1.3 MB each). Regenerated on demand by
+# analysis_notebooks/failure_case_explorer.ipynb and visualize_spacetime.ipynb.
+experiment_log/plots/
+
 # Private working notes -- NEVER commit. Project handoff/strategy material and
 # personal working context, not research artefacts. Local only, by decision.
 claudemd/
+
+# Agent instruction file. Configures a coding assistant for this repo; it is not
+# documentation of the research and does not describe how to run anything.
+claude.MD
+
+# Backups written by the memory-compression tooling.
+*.original.md
