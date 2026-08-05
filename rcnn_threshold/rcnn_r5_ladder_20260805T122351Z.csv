@@ -1,0 +1,17 @@
+weights,d,p,rounds,n_test,p_L,mwpm_p_L,mwpm_source,pool,ratio,base_rate,both_right,rcnn_only,mwpm_only,both_wrong,n_discordant,net_rcnn_wins,mcnemar_chi2_cc,p_chi2,p_exact,n_train,seed
+r5_ladder_ntr100000_seed2.best.weights.h5,5,0.01,5,200000,0.282595,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,100000,2
+r5_ladder_ntr100000_seed0.best.weights.h5,5,0.01,5,200000,0.301805,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,100000,0
+r5_ladder_ntr100000_seed1.best.weights.h5,5,0.01,5,200000,0.309575,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,100000,1
+r5_ladder_ntr300000_seed2.best.weights.h5,5,0.01,5,200000,0.19215,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,300000,2
+r5_ladder_ntr300000_seed0.best.weights.h5,5,0.01,5,200000,0.22099,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,300000,0
+r5_ladder_ntr800000_seed2.best.weights.h5,5,0.01,5,200000,0.132275,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,800000,2
+r5_ladder_ntr300000_seed1.best.weights.h5,5,0.01,5,200000,0.21259,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,300000,1
+r5_ladder_ntr800000_seed0.best.weights.h5,5,0.01,5,200000,0.141575,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,800000,0
+r5_ladder_ntr2000000_seed2.best.weights.h5,5,0.01,5,200000,0.105005,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,2000000,2
+r5_ladder_ntr800000_seed1.best.weights.h5,5,0.01,5,200000,0.132615,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,800000,1
+r5_ladder_ntr2000000_seed0.best.weights.h5,5,0.01,5,200000,0.119195,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,2000000,0
+r5_ladder_ntr5000000_seed2.best.weights.h5,5,0.01,5,200000,0.09106,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,5000000,2
+r5_ladder_ntr2000000_seed1.best.weights.h5,5,0.01,5,200000,0.09727,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,2000000,1
+r5_ladder_ntr5000000_seed0.best.weights.h5,5,0.01,5,200000,0.091245,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,5000000,0
+r5_ladder_ntr5000000_seed1.best.weights.h5,5,0.01,5,200000,0.089405,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,5000000,1
+r5_ladder_ntr20000000_seed1.best.weights.h5,5,0.01,5,200000,0.08264,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,,20000000,1

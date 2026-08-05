@@ -1,0 +1,3 @@
+tag,d,p,rounds,seed,n_train,p_L,mwpm_validation,ratio_vs_mwpm,mwpm_printed_STALE,base_rate,n_params,epochs_ran,train_time_s,train_lo,train_hi,val_lo,val_hi,ckpt_best_is_restored,ckpt_best_is_lastepoch,source_log
+rcnn_d5_p0.010_r5_seed0_ntr10000000,5,0.01,5,0,10000000,0.09136,0.084215,1.0848,0.0891,0.355,69485,44,16639.0,0,10000000,20000000,20200000,True,True,r5_teacher_seed0.txt
+rcnn_d5_p0.010_r5_seed1_ntr10000000,5,0.01,5,1,10000000,0.08423,0.084215,1.0002,0.0891,0.355,69485,50,17868.0,0,10000000,20000000,20200000,False,False,r5_teacher_seed1.txt

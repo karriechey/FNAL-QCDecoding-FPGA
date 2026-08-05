@@ -41,12 +41,15 @@ for arch in $ARCHS; do
   for ntr in $RUNGS; do
     for s in $SEEDS; do
       i=$((i+1))
-      tag="r5hard_${arch}_ntr${ntr}_seed${s}"
+      # The LR is in the tag so an LR-bracket diagnostic does not overwrite the runs it
+      # is being compared against. TAGSUF lets a diagnostic namespace itself further.
+      tag="r5hard_${arch}_ntr${ntr}_seed${s}_lr${LR:-0.003}${TAGSUF:-}"
       echo "=============== [$i/$n] $tag ==============="
       $PY train_student.py --student "$arch" --inputs evts $SIZE \
         --d 5 --p 0.010 --rounds 5 \
-        --alpha 1.0 --temperature 1.0 --lr 0.003 \
+        --alpha 1.0 --temperature 1.0 --lr "${LR:-0.003}" \
         --seed "$s" --n-train "$ntr" --n-test "$VAL_N" --eval-start "$VAL_START" \
+        --val-start "$VAL_START" --val-n "$VAL_N" \
         --epochs 50 --batch-size 10000 --no-early-stopping \
         --pool "$POOL" --out-dir "$OUTDIR" --tag "$tag" 2>&1 \
         | grep -Ev "cuda_|Unable to register|^Total number|^Number of unique|^Epoch |- loss:"

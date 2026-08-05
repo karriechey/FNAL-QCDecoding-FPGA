@@ -352,7 +352,20 @@ def run():
     ap.add_argument('--n-test', type=int, required=True)
     ap.add_argument('--epochs', type=int, default=50)
     ap.add_argument('--batch-size', type=int, default=10000)
-    ap.add_argument('--val-split', type=float, default=0.2)
+    ap.add_argument('--val-split', type=float, default=0.2,
+                    help='fallback only, used when --val-start/--val-n are not given. '
+                         'Carves this fraction OUT of the training prefix, so n_train '
+                         'overstates the shots that actually produce gradients.')
+    # Explicit validation block, mirroring train_one.py's --val-start/--val-n. Without
+    # these Keras carves validation_split out of the training prefix, so a student at
+    # n_train=N trains on 0.8N while the teacher at the same n_train trains on N -- the
+    # two ladders are then not comparable on the x-axis, which is the whole point of
+    # plotting them together.
+    ap.add_argument('--val-start', type=int, default=None,
+                    help='first shot of an explicit validation block. Set with --val-n to '
+                         'pass validation_data and disable validation_split, so the full '
+                         'training prefix produces gradients.')
+    ap.add_argument('--val-n', type=int, default=None)
     ap.add_argument('--patience', type=int, default=5)
     ap.add_argument('--no-early-stopping', action='store_true')
     ap.add_argument('--lr', type=float, default=None,
@@ -489,6 +502,51 @@ def run():
                              d=d, rounds=r, p=p)
     del m_te, b_te, e_te
 
+    # --- explicit validation block --------------------------------------------------
+    # Mirrors train_one.py: when --val-start/--val-n are given, validation comes from
+    # those shots and validation_split is disabled, so every shot in [0, n_train)
+    # produces gradients. Disjointness is asserted rather than assumed.
+    val_data = None
+    if args.val_start is not None:
+        if args.val_n is None:
+            raise SystemExit(f"{LOG} --val-start requires --val-n")
+        v0, v1 = args.val_start, args.val_start + args.val_n
+        if v0 < ntr:
+            raise SystemExit(f"{LOG} validation [{v0}, {v1}) overlaps the training "
+                             f"prefix [0, {ntr}) -- not disjoint")
+        if v1 > Nte:
+            raise SystemExit(f"{LOG} validation [{v0}, {v1}) exceeds pool size {Nte}")
+        m_va = zte['measurements'][v0:v1].astype(binary_t)
+        e_va = zte['det_evts'][v0:v1].astype(binary_t)
+        f_va = zte['flips'][v0:v1].astype(binary_t).reshape(-1)
+        b_va, _, _ = split_measurements(m_va, d, idx_t)
+        x_va = assemble_features(b_va, e_va, args.inputs, student=args.student,
+                                 d=d, rounds=r, p=p)
+        del m_va, b_va, e_va
+        # The loss expects the packed [hard_label, teacher_logit] target. On the
+        # validation block there is no teacher cache, so the teacher column is zeros;
+        # that is only correct when the hard term carries all the weight.
+        if args.alpha < 1.0:
+            raise SystemExit(
+                f"{LOG} --val-start with alpha={args.alpha} < 1: the validation block has "
+                f"no cached teacher output, so the soft term cannot be evaluated there. "
+                f"Dump a teacher cache over the validation shots first.")
+        y_va = np.stack([f_va.astype(np.float32), np.zeros(len(f_va), np.float32)], axis=1)
+        val_data = (x_va, y_va)
+        steps = int(np.ceil(ntr / args.batch_size))
+        print(f"{LOG} partitions: train [0, {ntr:,})  validation [{v0:,}, {v1:,})  "
+              f"(validation_split disabled)", flush=True)
+        print(f"{LOG} {steps} steps/epoch x {args.epochs} epochs = "
+              f"{steps * args.epochs:,} optimizer updates", flush=True)
+    else:
+        eff = int(ntr * (1 - args.val_split))
+        steps = int(np.ceil(eff / args.batch_size))
+        print(f"{LOG} WARNING: no --val-start; validation_split={args.val_split} carves "
+              f"{ntr - eff:,} shots OUT of the training prefix, so only {eff:,} of "
+              f"{ntr:,} produce gradients.", flush=True)
+        print(f"{LOG} {steps} steps/epoch x {args.epochs} epochs = "
+              f"{steps * args.epochs:,} optimizer updates", flush=True)
+
     # --- build, compile, fit --------------------------------------------------------
     set_seeds(seed)
     model = build_student(args.student, d=d, rounds=r, inputs=args.inputs,
@@ -512,11 +570,17 @@ def run():
     if not args.no_early_stopping:
         callbacks.insert(0, tf.keras.callbacks.EarlyStopping(
             monitor='val_loss', patience=args.patience, restore_best_weights=True))
+    # Printed, not asserted: EarlyStopping(restore_best_weights=True) swaps weights during
+    # its own on_epoch_end, so anything that must observe the true final epoch has to
+    # appear before it. Logging the constructed order makes that checkable by inspection.
+    print(f"{LOG} callback order: "
+          f"{[type(c).__name__ for c in callbacks]}", flush=True)
 
+    fit_kw = (dict(validation_data=val_data) if val_data is not None
+              else dict(validation_split=args.val_split))
     t0 = time.time()
     hist = model.fit(x=x_tr, y=y_tr, batch_size=args.batch_size, epochs=args.epochs,
-                     validation_split=args.val_split, shuffle=True, verbose=2,
-                     callbacks=callbacks)
+                     shuffle=True, verbose=2, callbacks=callbacks, **fit_kw)
     train_time = time.time() - t0
     epochs_ran = len(hist.history['loss'])
     best_val = float(min(hist.history['val_loss']))
