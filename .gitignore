@@ -32,13 +32,10 @@ experiment_log/logs/
 # analysis_notebooks/failure_case_explorer.ipynb and visualize_spacetime.ipynb.
 experiment_log/plots/
 
-# Private working notes -- NEVER commit. Project handoff/strategy material and
+# Private working notes -- NEVER commit. Planning and strategy material and
 # personal working context, not research artefacts. Local only, by decision.
-claudemd/
+private_notes/
+PROJECT_NOTES.md
 
-# Agent instruction file. Configures a coding assistant for this repo; it is not
-# documentation of the research and does not describe how to run anything.
-claude.MD
-
-# Backups written by the memory-compression tooling.
+# Editor and tooling scratch files.
 *.original.md
