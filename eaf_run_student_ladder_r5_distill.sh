@@ -121,6 +121,7 @@ for arch in $ARCHS; do
         --d 5 --p 0.010 --rounds 5 \
         --alpha "$ALPHA" --temperature "$TEMP" --lr "$LR" \
         --teacher-cache "$CACHE_TRAIN" --teacher-tail-cache "$CACHE_TAIL" \
+        --val-teacher-cache "$CACHE_TAIL" \
         --seed "$s" --n-train "$ntr" --n-test "$VAL_N" --eval-start "$VAL_START" \
         --val-start "$VAL_START" --val-n "$VAL_N" \
         --epochs 50 --batch-size 10000 --no-early-stopping \

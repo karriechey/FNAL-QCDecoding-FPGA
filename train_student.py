@@ -366,8 +366,30 @@ def run():
                          'pass validation_data and disable validation_split, so the full '
                          'training prefix produces gradients.')
     ap.add_argument('--val-n', type=int, default=None)
+    ap.add_argument('--val-teacher-cache', default=None,
+                    help='teacher cache covering the validation block. Required with '
+                         '--val-start when alpha < 1: the soft term of the loss needs '
+                         'teacher logits on the validation shots too, and the training '
+                         'cache does not cover them (it stops at n_train). Usually the '
+                         'same npz passed to --teacher-tail-cache, since validation and '
+                         'the scored partition are normally the same shots.')
     ap.add_argument('--patience', type=int, default=5)
     ap.add_argument('--no-early-stopping', action='store_true')
+    # --- best-validation checkpointing (added 2026-08-06 for the parameter-reduction
+    # study, which selects a checkpoint on one slice and reports on a disjoint one).
+    # Both default to None, so every earlier student run reproduces unchanged: with no
+    # --ckpt-dir no callback is added and nothing about the run differs.
+    ap.add_argument('--ckpt-dir', default=None,
+                    help='write the best-val_loss checkpoint and a true final-epoch '
+                         'checkpoint here. Without it, only the end-of-fit weights are '
+                         'saved, which are the restored best only when early stopping '
+                         'fired -- not comparable across runs.')
+    ap.add_argument('--run-tag', default=None,
+                    help='filename prefix for those checkpoints (defaults to --tag)')
+    ap.add_argument('--require-determinism', action='store_true',
+                    help='hard-fail unless TF_DETERMINISTIC_OPS=1 and '
+                         'TF_CUDNN_DETERMINISTIC=1 were exported by the launcher, before '
+                         'this process started.')
     ap.add_argument('--lr', type=float, default=None,
                     help='constant learning rate, replacing the inherited train_one.py '
                          'schedule. That schedule opens at 1e-2 because it has to kick the '
@@ -405,6 +427,14 @@ def run():
     if args.alpha < 1.0 and not args.teacher_cache:
         raise SystemExit(f"{LOG} --teacher-cache is required unless --alpha 1.0 "
                          "(pure hard-label control arm).")
+
+    if args.require_determinism:
+        # The parameter-reduction study requires the LAUNCHER to have exported both
+        # variables. The setdefault calls below would otherwise mask a launcher that
+        # forgot, which is fine for this script alone but hides a broken launcher from
+        # every other entry point in the same sweep.
+        from slice_guard_r5 import assert_deterministic_env
+        assert_deterministic_env()
 
     os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
     # Same determinism flags as train_one_quantized.py. Without them, GPU float reductions
@@ -523,15 +553,34 @@ def run():
         x_va = assemble_features(b_va, e_va, args.inputs, student=args.student,
                                  d=d, rounds=r, p=p)
         del m_va, b_va, e_va
-        # The loss expects the packed [hard_label, teacher_logit] target. On the
-        # validation block there is no teacher cache, so the teacher column is zeros;
-        # that is only correct when the hard term carries all the weight.
+        # The loss expects the packed [hard_label, teacher_logit] target. With alpha=1 the
+        # teacher column is unused, so zeros are honest filler. With alpha<1 they are not:
+        # zeros are a teacher saying p=0.5 on every validation shot, which would make the
+        # validation loss measure the wrong thing and, with early stopping, select on it.
+        # So the logits must come from a cache covering the validation block.
         if args.alpha < 1.0:
-            raise SystemExit(
-                f"{LOG} --val-start with alpha={args.alpha} < 1: the validation block has "
-                f"no cached teacher output, so the soft term cannot be evaluated there. "
-                f"Dump a teacher cache over the validation shots first.")
-        y_va = np.stack([f_va.astype(np.float32), np.zeros(len(f_va), np.float32)], axis=1)
+            if not args.val_teacher_cache:
+                raise SystemExit(
+                    f"{LOG} --val-start with alpha={args.alpha} < 1 requires "
+                    f"--val-teacher-cache: the soft term needs teacher logits on the "
+                    f"validation shots, and the training cache stops at n_train. Dump a "
+                    f"cache over [{v0}, {v1}) and pass it (usually the same npz as "
+                    f"--teacher-tail-cache).")
+            z_va, _p_va, f_va_cache = load_teacher_cache(
+                args.val_teacher_cache, train_fn, v0, v1, pool_npz=None)
+            # The cache carries its own copy of the labels. If they disagree with the
+            # pool's, the cache describes different shots than the ones just loaded --
+            # which is exactly the silent-misalignment failure the fingerprints exist to
+            # catch, so check it here too rather than trusting the range arithmetic.
+            if not np.array_equal(f_va_cache.reshape(-1).astype(np.int8),
+                                  f_va.reshape(-1).astype(np.int8)):
+                raise SystemExit(
+                    f"{LOG} --val-teacher-cache flips disagree with the pool over "
+                    f"[{v0}, {v1}) -- the cache does not describe these shots.")
+            z_va = z_va.reshape(-1).astype(np.float32)
+        else:
+            z_va = np.zeros(len(f_va), np.float32)
+        y_va = np.stack([f_va.astype(np.float32), z_va], axis=1)
         val_data = (x_va, y_va)
         steps = int(np.ceil(ntr / args.batch_size))
         print(f"{LOG} partitions: train [0, {ntr:,})  validation [{v0:,}, {v1:,})  "
@@ -570,6 +619,24 @@ def run():
     if not args.no_early_stopping:
         callbacks.insert(0, tf.keras.callbacks.EarlyStopping(
             monitor='val_loss', patience=args.patience, restore_best_weights=True))
+    if args.ckpt_dir:
+        # Same construction train_one.py uses. The final-epoch saver is placed BEFORE
+        # EarlyStopping, because EarlyStopping(restore_best_weights=True) swaps the best
+        # weights back in during its own on_epoch_end on the stopping epoch, and anything
+        # that must observe the true final epoch has to run first.
+        os.makedirs(args.ckpt_dir, exist_ok=True)
+        _ck = os.path.join(args.ckpt_dir, (args.run_tag or args.tag or 'run'))
+
+        class _SaveLastEpoch(tf.keras.callbacks.Callback):
+            def on_epoch_end(self, epoch, logs=None):
+                self.model.save_weights(_ck + '.lastepoch.weights.h5')
+
+        callbacks.insert(0, _SaveLastEpoch())
+        callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+            _ck + '.best.weights.h5', monitor='val_loss', mode='min',
+            save_best_only=True, save_weights_only=True, verbose=0))
+        print(f"{LOG} checkpoints -> {_ck}.best.weights.h5 (min val_loss) and "
+              f"{_ck}.lastepoch.weights.h5", flush=True)
     # Printed, not asserted: EarlyStopping(restore_best_weights=True) swaps weights during
     # its own on_epoch_end, so anything that must observe the true final epoch has to
     # appear before it. Logging the constructed order makes that checkable by inspection.

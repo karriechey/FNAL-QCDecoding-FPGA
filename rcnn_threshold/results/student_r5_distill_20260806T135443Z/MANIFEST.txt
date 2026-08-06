@@ -1,0 +1,14 @@
+experiment    : r=5 distilled student ladder (alpha=0.0, T=1.0)
+launched      : 2026-08-06T13:54:43Z  on jupyter-kchey-seed2
+pool          : /home/kchey/rcnn_threshold/pools_r5/data_d5_p0.010_r5_FORMAL.npz
+teacher       : /home/kchey/rcnn_threshold/out_r5_ladder/ntr20000000/seed0/rcnn_d5_p0.010_r5_seed0_ntr20000000.weights.h5   (median 20M seed)
+teacher sha   : e7415f4fe63f358a
+cache (train) : /home/kchey/rcnn_threshold/teacher_r5/teacher_r5_seed0_first20M.npz   shots [0, 20000000)
+cache (tail)  : /home/kchey/rcnn_threshold/teacher_r5/teacher_r5_seed0_val200k.npz    shots [20000000, 20200000)
+rungs         : 100000 300000 800000 2000000 5000000 10000000 20000000
+archs         : gru mlp   mlp hidden=(209 209)  gru units=140
+seeds         : 0 1 2
+lr            : 0.003
+validation    : [20000000, 20200000)   sealed test not read
+code sha      : 7b91eea1d465d6e9  train_student.py
+              : e12d3415fb07fdc4  StudentModels.py
