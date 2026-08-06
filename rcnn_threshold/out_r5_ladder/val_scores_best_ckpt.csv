@@ -15,3 +15,5 @@ r5_ladder_ntr2000000_seed1.best.weights.h5,5,0.01,5,200000,0.09727,,stored_basel
 r5_ladder_ntr5000000_seed0.best.weights.h5,5,0.01,5,200000,0.091245,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,
 r5_ladder_ntr5000000_seed1.best.weights.h5,5,0.01,5,200000,0.089405,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,
 r5_ladder_ntr20000000_seed1.best.weights.h5,5,0.01,5,200000,0.08264,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,
+r5_ladder_ntr20000000_seed2.best.weights.h5,5,0.01,5,200000,0.0798,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,
+r5_ladder_ntr20000000_seed0.best.weights.h5,5,0.01,5,200000,0.081585,,stored_baseline,data_d5_p0.010_r5_FORMAL.npz,,0.35539,,,,,,,,,
