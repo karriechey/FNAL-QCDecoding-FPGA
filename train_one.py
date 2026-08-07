@@ -133,10 +133,26 @@ def run():
                     help='write best-validation and true final-epoch checkpoints here')
     ap.add_argument('--run-tag', default=None, help='prefix for checkpoint filenames')
     ap.add_argument('--cpu', action='store_true', help='hide GPU, run on CPU.')
+    # Added 2026-08-06 for the parameter-reduction study. Off by default, so every
+    # earlier run reproduces unchanged; the new launcher passes it so a run started
+    # without the determinism variables dies instead of quietly being nondeterministic.
+    ap.add_argument('--require-determinism', action='store_true',
+                    help='hard-fail unless TF_DETERMINISTIC_OPS=1 and '
+                         'TF_CUDNN_DETERMINISTIC=1 were exported before this process, '
+                         'and TensorFlow is 2.15.x. Both variables are read by '
+                         'TensorFlow at import time, so setting them inside the process '
+                         'would have no effect.')
     args = ap.parse_args()
+
+    if args.require_determinism:
+        from slice_guard_r5 import assert_deterministic_env
+        assert_deterministic_env()          # must precede the TensorFlow import
 
     os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
     import tensorflow as tf
+    if args.require_determinism:
+        from slice_guard_r5 import assert_tf_version
+        assert_tf_version(tf)
     if args.cpu:
         tf.config.set_visible_devices([], 'GPU')
     gpus = tf.config.list_physical_devices('GPU')
