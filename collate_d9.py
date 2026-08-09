@@ -7,19 +7,19 @@ Reads the per-run outputs the three launchers leave behind and emits the two tab
 study is defined to produce -- one row per seed, then one row per architecture per
 distance -- as both CSV and Markdown.
 
-Where each number comes from, and why they are not read the same way:
+Where each number comes from, since the two arms are read differently:
 
-  RCNN     $OUTROOT/val_scores_best_ckpt.csv, written by eval_on_tail.py, NOT the
-           per-run training CSV. A run's own p_L is whatever weights sat in memory when
-           fit() returned, which is the restored best only if early stopping fired -- so
-           it is not comparable across seeds. The re-scored .best checkpoint is.
+  RCNN     $OUTROOT/val_scores_best_ckpt.csv, written by eval_on_tail.py. A run's own p_L
+           is whatever weights sat in memory when fit() returned, which is the restored
+           best only if early stopping fired; the re-scored .best checkpoint is
+           comparable across seeds.
   MLP/GRU  the per-run CSVs train_student.py writes, one file per run, which already
            carry the .best-selected p_L along with alpha, n_params and the pool hashes.
 
-MWPM is never taken from a model run's mwpm_p_L column. That column is suppressed under
-an explicit --pool anyway, and the one time it was not, a stale value (0.0451 against the
-true 0.049405 on the same shots) propagated into a sweep. The baseline comes from the
-pool's own mwpm_baseline.csv / fingerprint, matched on (d, p, rounds).
+MWPM comes from the pool's own mwpm_baseline.csv / fingerprint, matched on (d, p, rounds).
+A model run's mwpm_p_L column is suppressed under an explicit --pool anyway, and the one
+time it leaked, a stale 0.0451 (against 0.049405 on the same shots) propagated into a
+sweep.
 
   python collate_d9.py                        # both distances, default EAF paths
   python collate_d9.py --rt /path/to/pulled   # a downloaded tarball tree
@@ -45,7 +45,7 @@ D5_REFERENCE = dict(
 
 
 def read_mwpm(rt, d, p, rounds, pool_dir):
-    """MWPM p_L for this exact (d, p, rounds), from the pool build -- never from a run."""
+    """MWPM p_L for this exact (d, p, rounds), taken from the pool build."""
     for cand in (os.path.join(rt, pool_dir, 'mwpm_baseline.csv'),):
         if not os.path.exists(cand):
             continue
@@ -86,10 +86,10 @@ def read_students(outdir):
             continue
         for r in csv.DictReader(open(f)):
             # Guard the regime explicitly: a distilled row in a hard-label directory
-            # would silently corrupt the distance comparison, which is exactly the
-            # failure the study's controls section calls out.
+            # would silently corrupt the distance comparison, the failure the study's
+            # controls section calls out.
             if abs(float(r.get('alpha', 1.0)) - 1.0) > 1e-9:
-                print(f"  SKIP {os.path.basename(f)}: alpha={r['alpha']}, not hard label")
+                print(f"  skipping {os.path.basename(f)}: alpha={r['alpha']}, distilled")
                 continue
             rows.append(dict(architecture=r['student'], seed=int(r['seed']),
                              n_train=int(r['n_train']), p_L=float(r['p_L']),
@@ -114,7 +114,7 @@ def main():
     mwpm9, mwpm9_src = read_mwpm(args.rt, 9, 0.010, 9, 'pools_d9')
     if mwpm9 is None:
         raise SystemExit(f"[collate] no d=9 MWPM baseline under {args.rt}/pools_d9 -- "
-                         f"the pool build writes it. Cannot compute xMWPM. STOP.")
+                         f"the pool build writes it. Cannot compute xMWPM.")
     print(f"[collate] d=9 MWPM {mwpm9:.6f}  <- {mwpm9_src}")
     print(f"[collate] d=5 MWPM {D5_REFERENCE['mwpm_p_L']:.6f}  <- {D5_REFERENCE['pool']}")
 
@@ -161,8 +161,8 @@ def main():
         w.writerow(['distance', 'rounds', 'architecture', 'params', 'n_seeds',
                     'mean_p_L', 'std_p_L', 'min_p_L', 'max_p_L', 'mean_xMWPM', 'mwpm_p_L'])
         for arch in ('rcnn', 'mlp', 'gru'):
-            # d=5 reference row. p_L is filled from the existing study only if the
-            # collation is pointed at a tree that holds it; otherwise the parameter count
+            # d=5 reference row. p_L is filled from the existing study when the
+            # collation is pointed at a tree holding it; otherwise the parameter count
             # alone carries the scaling comparison, and the p_L cell says so.
             w.writerow([5, 5, arch, D5_REFERENCE['params'][arch], '', '', '', '', '',
                         '', D5_REFERENCE['mwpm_p_L']])
@@ -189,7 +189,8 @@ def main():
         fh.write(f"MWPM d=5,r=5: **{D5_REFERENCE['mwpm_p_L']:.6f}**  "
                  f"({D5_REFERENCE['partition']})\n\n")
         fh.write("Hard-label students (alpha=1.0) at both distances. "
-                 "All values on the validation partition; both sealed test blocks unread.\n\n")
+                 "All values on the validation partition; both test blocks left "
+                 "sealed.\n\n")
         fh.write("\n".join(lines) + "\n")
     print(f"[collate] markdown -> {md}")
     print("\n" + "\n".join(lines))

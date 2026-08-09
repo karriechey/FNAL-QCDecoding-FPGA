@@ -6,9 +6,9 @@
 The distance-scaling study changes exactly two things relative to the established
 d=5, r=5 comparison -- distance 5 -> 9 and rounds 5 -> 9 -- and lets every tensor shape
 follow from those. That is a cheap change to write and an expensive one to get subtly
-wrong: a GRU whose time axis silently became the feature axis still trains, still reports
-a plausible p_L, and is not the experiment anyone intended to run. So nothing launches
-until every check below passes.
+wrong: a GRU whose time axis silently became the feature axis still trains and still
+reports a plausible p_L, while answering a different question. So nothing launches until
+every check below passes.
 
 Two groups of checks.
 
@@ -17,8 +17,8 @@ laptop before the 14.7 GB pool exists):
   shapes and widths against the analytic values for (d, rounds)
   the three partitions are disjoint and inside the pool
   logical flip base rate on each partition
-  resident memory actually consumed by loading the pool, which at d=9 is the single
-  most likely reason a run dies on the pod
+  resident memory consumed by loading the pool, the likeliest reason a d=9 run dies
+  on the pod
 
 Model, for each of RCNN / MLP / GRU:
   1. instantiate
@@ -31,9 +31,8 @@ Model, for each of RCNN / MLP / GRU:
   8. confirm validation scoring runs
   9. confirm a reloaded checkpoint predicts bit-identically
 
-Check 9 is the one that catches a mis-saved custom model: FullRCNNModel is subclassed,
-not functional, so a weight file that loads without error can still be a different model
-if the build order changed.
+Check 9 catches a mis-saved custom model: FullRCNNModel is subclassed, so a weight file
+that loads without error can still restore a different model if the build order changed.
 
   python preflight_d9.py                                  # models only, synthetic data
   python preflight_d9.py --pool ~/rcnn_threshold/pools_d9/data_d9_p0.010_r9_FORMAL.npz
@@ -49,8 +48,8 @@ import time
 import numpy as np
 
 # The RCNN teacher's fixed configuration, unchanged from the d=5 comparison. These are
-# not tunables -- Exp 10 asks how the EXISTING families scale, so anything that would
-# retune an architecture in response to d is a bug, not a knob.
+# fixed -- Exp 10 asks how the existing families scale, so retuning an architecture in
+# response to d would be a bug.
 KERNEL = 3
 HIDDEN = [100, 100]
 NPOL = 2
@@ -69,7 +68,7 @@ def rss_bytes():
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         # Linux reports kilobytes, macOS reports bytes.
         return peak * 1024 if sys.platform.startswith('linux') else peak
-    except Exception:  # noqa: BLE001 - diagnostics only, never fail the preflight on this
+    except Exception:  # noqa: BLE001 - diagnostics only; a miss here stays silent
         return None
 
 
@@ -96,8 +95,8 @@ def check_dataset(args, fail):
     if measurements.shape[1] != n_meas_expected:
         fail(f"measurement width {measurements.shape[1]} != r*(d^2-1)+d^2 "
              f"= {n_meas_expected} for d={d}, r={r}")
-    # det_evts comes straight from stim's detector list; compare against the circuit
-    # rather than a formula, so a change in the stim template is caught here.
+    # det_evts comes straight from stim's detector list, so compare against the circuit
+    # itself and a change in the stim template is caught here.
     from eval_on_tail import build_circuit
     circ = build_circuit(d, args.p, r)
     if det_evts.shape[1] != circ.num_detectors:
@@ -112,7 +111,7 @@ def check_dataset(args, fail):
     va = (args.n_train, args.n_train + args.n_val)
     te = (n_total - args.n_test, n_total)
     print(f"  partitions: train [{tr[0]:,}, {tr[1]:,})  "
-          f"validation [{va[0]:,}, {va[1]:,})  test SEALED [{te[0]:,}, {te[1]:,})")
+          f"validation [{va[0]:,}, {va[1]:,})  test sealed [{te[0]:,}, {te[1]:,})")
 
     if va[1] > n_total:
         fail(f"validation ends at {va[1]:,}, past the pool's {n_total:,} shots")
@@ -122,7 +121,7 @@ def check_dataset(args, fail):
         fail(f"validation [{va[0]:,}, {va[1]:,}) overlaps the sealed test at {te[0]:,}")
     if tr[1] > te[0]:
         fail(f"training [{tr[0]:,}, {tr[1]:,}) overlaps the sealed test at {te[0]:,}")
-    print("  partitions disjoint: OK")
+    print("  partitions disjoint: ok")
 
     # Class balance. The all-zero predictor's error rate is the floor every model must
     # beat; at d=9, p=0.010 it sits near 0.49, so a collapsed model looks almost as good
@@ -131,7 +130,7 @@ def check_dataset(args, fail):
     base_va = float(np.asarray(flips[va[0]:va[1]]).mean())
     print(f"  logical flip base rate: train(first 1M) {base_tr:.4f}  "
           f"validation {base_va:.4f}")
-    print("  test partition NOT read (sealed)")
+    print("  test partition left sealed")
 
     fp = args.pool.replace('.npz', '.fingerprint.json')
     if os.path.exists(fp):
@@ -139,7 +138,7 @@ def check_dataset(args, fail):
         print(f"  fingerprint: gen_seed={meta.get('gen_seed')} "
               f"mwpm_p_L={meta.get('mwpm_p_L')} flips_sha={meta.get('flips_sha256', '')[:16]}")
     else:
-        print(f"  NOTE no fingerprint at {fp}")
+        print(f"  note: no fingerprint at {fp}")
 
     return dict(n_total=n_total, base_rate_val=base_va, n_det=int(circ.num_detectors))
 
@@ -156,9 +155,8 @@ def check_models(args, fail):
     n_det = build_circuit(d, p, r).num_detectors
 
     # Synthetic inputs. The preflight tests plumbing -- shapes, gradients, checkpoint
-    # round-trips -- none of which depends on the bits being physically real. A falling
-    # loss on random labels only proves the optimiser is connected, which is check 7's
-    # entire claim; it is not evidence the model learns anything.
+    # round-trips -- all of which hold for any bits. A falling loss on random labels
+    # proves the optimiser is connected, which is check 7's entire claim.
     rng = np.random.default_rng(0)
     n = args.smoke_shots
     det_bits = rng.integers(0, 2, (n, n_detbits), dtype=np.int8)
@@ -193,9 +191,9 @@ def check_models(args, fail):
             feats = to_sequence(det_evts, d, r, p) if arch == 'gru' else det_evts
             x, xv = feats, feats[:nv]
             out = model(feats[:2])
-            # The students emit a logit, not a probability -- the sigmoid is deliberately
-            # outside the model so distillation can work in logit space and the FPGA
-            # never pays for it. The loss has to know that.
+            # The students emit a logit. The sigmoid sits outside the model so
+            # distillation works in logit space and the FPGA is spared the cost, which
+            # the loss has to know about.
             loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
         n_params = int(model.count_params())
@@ -212,10 +210,10 @@ def check_models(args, fail):
 
         # ---- 5. output shape --------------------------------------------------------
         shape = tuple(np.asarray(out).shape)
-        print(f"  [4] forward pass OK, output {shape}")
+        print(f"  [4] forward pass ok, output {shape}")
         if shape[0] != 2 or int(np.prod(shape[1:])) != 1:
             fail(f"{arch}: expected one score per shot, got output shape {shape}")
-        print("  [5] output shape OK (one score per shot)")
+        print("  [5] output shape ok (one score per shot)")
 
         # ---- 6/7. smoke train, loss must fall ---------------------------------------
         model.compile(optimizer='adam', loss=loss)
@@ -227,16 +225,16 @@ def check_models(args, fail):
         print(f"      loss {losses[0]:.5f} -> {losses[-1]:.5f}")
         if not (losses[-1] < losses[0]):
             fail(f"{arch}: loss did not decrease ({losses[0]:.5f} -> {losses[-1]:.5f})")
-        print("  [7] loss decreased OK")
+        print("  [7] loss decreased ok")
 
         # ---- 8. validation scoring ran ----------------------------------------------
         if 'val_loss' not in hist.history:
             fail(f"{arch}: no val_loss recorded -- validation scoring did not run")
-        print(f"  [8] validation scoring OK (val_loss {hist.history['val_loss'][-1]:.5f})")
+        print(f"  [8] validation scoring ok (val_loss {hist.history['val_loss'][-1]:.5f})")
 
         # ---- 9. checkpoint reload is bit-identical ----------------------------------
-        # Compare PREDICTIONS, not file bytes: two HDF5 files holding identical arrays
-        # differ byte-wise, so hashing the files would prove nothing either way.
+        # Compare predictions: two HDF5 files holding identical arrays differ byte-wise,
+        # so hashing the files proves nothing either way.
         wpath = os.path.join(tmpdir, f'{arch}.weights.h5')
         model.save_weights(wpath)
         before = np.asarray(model.predict(xv, batch_size=args.batch_size, verbose=0))
@@ -248,7 +246,7 @@ def check_models(args, fail):
             worst = float(np.max(np.abs(before - after)))
             fail(f"{arch}: reloaded checkpoint predicts differently "
                  f"(max |delta| = {worst:.3e})")
-        print("  [9] checkpoint reload bit-identical OK")
+        print("  [9] checkpoint reload bit-identical ok")
 
     return params
 
@@ -282,7 +280,7 @@ def main():
 
     def fail(msg):
         failures.append(msg)
-        print(f"  *** FAIL: {msg}", flush=True)
+        print(f"  *** failed: {msg}", flush=True)
 
     if args.pool:
         check_dataset(args, fail)
@@ -300,7 +298,7 @@ def main():
 
     print()
     if failures:
-        print(f"[preflight] {len(failures)} FAILURE(S) -- do not launch:")
+        print(f"[preflight] {len(failures)} failure(s) -- do not launch:")
         for f in failures:
             print(f"  - {f}")
         raise SystemExit(1)
