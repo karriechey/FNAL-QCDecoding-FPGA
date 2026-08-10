@@ -1,0 +1,61 @@
+{
+  "slice": [
+    20100000,
+    20200000
+  ],
+  "n": 100000,
+  "p_L": 0.0842,
+  "binomial_se": 0.0008781250480427032,
+  "residual_errors": 8420,
+  "base_flip_rate": 0.356,
+  "decode_seconds": 0.5,
+  "legacy_quoted_value": 0.084215,
+  "difference_vs_legacy": -1.5000000000001124e-05,
+  "difference_in_se": -0.017081849599251693,
+  "circuit": {
+    "generator": "circuit_generators.get_builtin_circuit",
+    "name": "surface_code:rotated_memory_z",
+    "distance": 5,
+    "rounds": 5,
+    "before_round_data_depolarization": 0.01,
+    "after_reset_flip_probability": 0.01,
+    "after_clifford_depolarization": 0.01,
+    "before_measure_flip_probability": 0.01,
+    "num_detectors": 120,
+    "num_observables": 1
+  },
+  "pool": "/home/kchey/rcnn_threshold/pools_r5/data_d5_p0.010_r5_FORMAL.npz",
+  "pool_fingerprint": {
+    "path": "/home/kchey/rcnn_threshold/pools_r5/data_d5_p0.010_r5_FORMAL.npz",
+    "d": 5,
+    "p": 0.01,
+    "rounds": 5,
+    "n_total": 20400000,
+    "partition_train": [
+      0,
+      20000000
+    ],
+    "partition_val": [
+      20000000,
+      20200000
+    ],
+    "partition_test_SEALED": [
+      20200000,
+      20400000
+    ],
+    "protocol": "Option A: dedicated validation block, disjoint from training and from the sealed test. Stricter than the r=3 exploratory protocol, which used Keras validation_split inside the prefix.",
+    "n_test": 200000,
+    "n_val": 200000,
+    "train_capacity": 20000000,
+    "gen_seed": 42,
+    "flips_sha256": "835d7168321aa9e89d27093583ec3f055118c60cfc8e84301a435d377b7b55ea",
+    "measurements_shape": "(20400000, 145)",
+    "det_evts_shape": "(20400000, 120)",
+    "mwpm_p_L": 0.084215,
+    "mwpm_resid_errors_test": 16843,
+    "size_gb": 5.05
+  },
+  "git_sha": "6895e2d4830a66cb35f703a35de6c47aeb686b0b-dirty",
+  "per_shot_file": "/home/kchey/rcnn_threshold/param_reduction_r5/mwpm_val_report_per_shot.npz",
+  "note": "This measured value is the baseline for the parameter-reduction study. Do not substitute 0.084215."
+}

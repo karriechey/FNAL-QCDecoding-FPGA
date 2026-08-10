@@ -1,0 +1,32 @@
+{
+  "architecture": "gru",
+  "target_fraction": 0.25,
+  "actual_params": 17153,
+  "seed": 0,
+  "n_train": 10000000,
+  "val_report_slice": [
+    20100000,
+    20200000
+  ],
+  "p_L": 0.09442,
+  "residual_errors": 9442,
+  "predicted_positive_rate": 0.35126,
+  "prob_mean": 0.36116334795951843,
+  "prob_std": 0.40035775303840637,
+  "val_select_slice": [
+    20000000,
+    20100000
+  ],
+  "val_select_diagnostic": null,
+  "checkpoint": "/home/kchey/rcnn_threshold/out_param_reduction_r5/gru/frac0.25/seed0/ckpt/pr5_gru_frac0.25_p17153_seed0_ntr10000000.best.weights.h5",
+  "checkpoint_sha256": "3bfd8110bdc9b28fdb67e9ba8d7e845d8f1c98a47455c6253e00270ab9fbd5b1",
+  "manifest_sha256": "fc46b79ef14059d551d20e2cbadf99a40be208ff6fb1ceae4ccd939db9216aba",
+  "git_sha": "6895e2d4830a66cb35f703a35de6c47aeb686b0b-dirty",
+  "per_shot_file": "/home/kchey/rcnn_threshold/out_param_reduction_r5/gru/frac0.25/seed0/pershot_valreport_pr5_gru_frac0.25_p17153_seed0_ntr10000000.npz",
+  "pool": "/home/kchey/rcnn_threshold/pools_r5/data_d5_p0.010_r5_FORMAL.npz",
+  "utc": "2026-08-07T17:33:39Z",
+  "smoke": false,
+  "gpu_smoke": false,
+  "reload_verification": null,
+  "slice_guard": "[slice-guard] 1 range(s) requested this process:\n[slice-guard]   ALLOW [20,100,000, 20,200,000)  val_report scoring\n[slice-guard] rejected: 0 (a rejection also raised, so a run that reached this line with a rejection would be a guard bug)"
+}

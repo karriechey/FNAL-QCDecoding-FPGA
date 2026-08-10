@@ -1,0 +1,4 @@
+kind,path,detail
+rung_dropped_by_design,,"rcnn @ 0.5: target 34,742 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"
+rung_dropped_by_design,,"rcnn @ 0.25: target 17,371 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"
+rung_dropped_by_design,,"rcnn @ 0.1: target 6,948 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"

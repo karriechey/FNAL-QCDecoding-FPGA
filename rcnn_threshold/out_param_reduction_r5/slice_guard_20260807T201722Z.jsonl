@@ -1,0 +1,8 @@
+{"t": "2026-08-07T20:27:20Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}
+{"t": "2026-08-07T20:34:05Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}
+{"t": "2026-08-07T20:39:28Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}
+{"t": "2026-08-07T20:44:37Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}
+{"t": "2026-08-07T20:47:46Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}
+{"t": "2026-08-07T20:50:42Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}
+{"t": "2026-08-07T20:53:43Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}
+{"t": "2026-08-07T20:56:48Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}

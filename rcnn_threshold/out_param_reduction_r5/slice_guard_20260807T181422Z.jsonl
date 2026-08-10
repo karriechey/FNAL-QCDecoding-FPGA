@@ -1,0 +1,1 @@
+{"t": "2026-08-07T23:43:57Z", "start": 20100000, "stop": 20200000, "n": 100000, "purpose": "val_report scoring", "script": "score_val_report_r5.py", "allowed": true}

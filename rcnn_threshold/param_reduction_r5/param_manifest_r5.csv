@@ -1,0 +1,13 @@
+architecture,target_fraction,target_params,actual_params,relative_error,width,constructor_args,reachable,reason
+rcnn,1.0,69485,69485,0.0,100,"{""hidden"": 100, ""hidden_layers"": 2, ""npol"": 2, ""kernel"": 3}",YES,
+rcnn,0.5,34742,,,,,NO,"target 34,742 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"
+rcnn,0.25,17371,,,,,NO,"target 17,371 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"
+rcnn,0.1,6948,,,,,NO,"target 6,948 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"
+gru,1.0,69441,69441,0.0,140,"{""units"": 140, ""hidden"": []}",YES,
+gru,0.5,34720,34945,0.00648,96,"{""units"": 96, ""hidden"": []}",YES,
+gru,0.25,17360,17153,-0.011924,64,"{""units"": 64, ""hidden"": []}",YES,
+gru,0.1,6944,6920,-0.003456,37,"{""units"": 37, ""hidden"": []}",YES,
+mlp,1.0,69389,69389,0.0,209,"{""hidden"": [209, 209]}",YES,
+mlp,0.5,34694,34831,0.003949,135,"{""hidden"": [135, 135]}",YES,
+mlp,0.25,17347,17389,0.002421,84,"{""hidden"": [84, 84]}",YES,
+mlp,0.1,6939,6931,-0.001153,42,"{""hidden"": [42, 42]}",YES,

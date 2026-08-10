@@ -1,0 +1,209 @@
+{
+  "study": "parameter_reduction_r5",
+  "created_utc": "2026-08-07T15:50:24Z",
+  "git_sha": "6895e2d4830a66cb35f703a35de6c47aeb686b0b-dirty",
+  "produced_by": "parameter_search_r5.py",
+  "tensorflow": "2.15.1",
+  "circuit": {
+    "d": 5,
+    "p": 0.01,
+    "rounds": 5,
+    "kernel_distance": 3,
+    "npol": 2
+  },
+  "partitions": {
+    "train": [
+      0,
+      10000000
+    ],
+    "val_select": [
+      20000000,
+      20100000
+    ],
+    "val_report": [
+      20100000,
+      20200000
+    ],
+    "sealed_test_DO_NOT_READ": [
+      20200000,
+      20400000
+    ]
+  },
+  "smoke": false,
+  "smoke_divisor": 1,
+  "reference_100pct": {
+    "rcnn": {
+      "config": {
+        "hidden": 100,
+        "hidden_layers": 2,
+        "npol": 2,
+        "kernel": 3
+      },
+      "measured_params": 69485
+    },
+    "gru": {
+      "config": {
+        "units": 140,
+        "hidden": []
+      },
+      "measured_params": 69441
+    },
+    "mlp": {
+      "config": {
+        "hidden": [
+          209,
+          209
+        ]
+      },
+      "measured_params": 69389
+    }
+  },
+  "rcnn_non_decoder_floor": 56684,
+  "rcnn_component_breakdown": {
+    "decoder_head (StateDecoder, sized by hidden_specs)": 12801,
+    "kernel combiners (TranslationFrac / TranslationPhase)": 360,
+    "CNNKernel detector-bit weights": 9840,
+    "CNNKernel detector-event weights": 16564,
+    "DetectorBitStateEmbedder": 1064,
+    "DetectorEventStateEmbedder": 3324,
+    "RCNNLeadInKernel triplet-state weights": 1476,
+    "TripletStateProbEmbedder": 1096,
+    "CNNStateCorrelator (state evolution + bias)": 21484,
+    "RCNNRecurrenceKernel triplet-state weights": 1476
+  },
+  "tolerance": 0.05,
+  "configurations": [
+    {
+      "architecture": "rcnn",
+      "target_fraction": 1.0,
+      "target_params": 69485,
+      "actual_params": 69485,
+      "relative_error": 0.0,
+      "width": 100,
+      "constructor_args": "{\"hidden\": 100, \"hidden_layers\": 2, \"npol\": 2, \"kernel\": 3}",
+      "reachable": "YES",
+      "reason": ""
+    },
+    {
+      "architecture": "rcnn",
+      "target_fraction": 0.5,
+      "target_params": 34742,
+      "actual_params": "",
+      "relative_error": "",
+      "width": "",
+      "constructor_args": "",
+      "reachable": "NO",
+      "reason": "target 34,742 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"
+    },
+    {
+      "architecture": "rcnn",
+      "target_fraction": 0.25,
+      "target_params": 17371,
+      "actual_params": "",
+      "relative_error": "",
+      "width": "",
+      "constructor_args": "",
+      "reachable": "NO",
+      "reason": "target 17,371 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"
+    },
+    {
+      "architecture": "rcnn",
+      "target_fraction": 0.1,
+      "target_params": 6948,
+      "actual_params": "",
+      "relative_error": "",
+      "width": "",
+      "constructor_args": "",
+      "reachable": "NO",
+      "reason": "target 6,948 is below the RCNN non-decoder floor of 56,684; reachable only by changing kernel_distance or npol, which section 5 forbids"
+    },
+    {
+      "architecture": "gru",
+      "target_fraction": 1.0,
+      "target_params": 69441,
+      "actual_params": 69441,
+      "relative_error": 0.0,
+      "width": 140,
+      "constructor_args": "{\"units\": 140, \"hidden\": []}",
+      "reachable": "YES",
+      "reason": ""
+    },
+    {
+      "architecture": "gru",
+      "target_fraction": 0.5,
+      "target_params": 34720,
+      "actual_params": 34945,
+      "relative_error": 0.00648,
+      "width": 96,
+      "constructor_args": "{\"units\": 96, \"hidden\": []}",
+      "reachable": "YES",
+      "reason": ""
+    },
+    {
+      "architecture": "gru",
+      "target_fraction": 0.25,
+      "target_params": 17360,
+      "actual_params": 17153,
+      "relative_error": -0.011924,
+      "width": 64,
+      "constructor_args": "{\"units\": 64, \"hidden\": []}",
+      "reachable": "YES",
+      "reason": ""
+    },
+    {
+      "architecture": "gru",
+      "target_fraction": 0.1,
+      "target_params": 6944,
+      "actual_params": 6920,
+      "relative_error": -0.003456,
+      "width": 37,
+      "constructor_args": "{\"units\": 37, \"hidden\": []}",
+      "reachable": "YES",
+      "reason": ""
+    },
+    {
+      "architecture": "mlp",
+      "target_fraction": 1.0,
+      "target_params": 69389,
+      "actual_params": 69389,
+      "relative_error": 0.0,
+      "width": 209,
+      "constructor_args": "{\"hidden\": [209, 209]}",
+      "reachable": "YES",
+      "reason": ""
+    },
+    {
+      "architecture": "mlp",
+      "target_fraction": 0.5,
+      "target_params": 34694,
+      "actual_params": 34831,
+      "relative_error": 0.003949,
+      "width": 135,
+      "constructor_args": "{\"hidden\": [135, 135]}",
+      "reachable": "YES",
+      "reason": ""
+    },
+    {
+      "architecture": "mlp",
+      "target_fraction": 0.25,
+      "target_params": 17347,
+      "actual_params": 17389,
+      "relative_error": 0.002421,
+      "width": 84,
+      "constructor_args": "{\"hidden\": [84, 84]}",
+      "reachable": "YES",
+      "reason": ""
+    },
+    {
+      "architecture": "mlp",
+      "target_fraction": 0.1,
+      "target_params": 6939,
+      "actual_params": 6931,
+      "relative_error": -0.001153,
+      "width": 42,
+      "constructor_args": "{\"hidden\": [42, 42]}",
+      "reachable": "YES",
+      "reason": ""
+    }
+  ]
+}
