@@ -120,6 +120,17 @@ def main():
                          'the reloaded checkpoint reproduces the loss it was selected on. '
                          'val_select is a selection slice, so nothing here is reported '
                          'from it.')
+    ap.add_argument('--gpu-smoke', action='store_true',
+                    help='mark every artifact this run writes as a GPU smoke-test product. '
+                         'The collation refuses to admit a run carrying this flag, so the '
+                         'output can never be quoted as a study result.')
+    ap.add_argument('--verify-reload', action='store_true',
+                    help='after scoring, build a SECOND model from the manifest, load the '
+                         'same checkpoint into it, re-score val_report, and report the '
+                         'largest absolute probability difference between the two passes. '
+                         'This is what demonstrates that a checkpoint reload reproduces '
+                         'its predictions on the hardware actually in use -- on GPU that '
+                         'is not implied by a CPU result, because reduction order differs.')
     ap.add_argument('--run-tag', default=None,
                     help='filename stem for the outputs. The launcher passes the same tag '
                          'it uses for the checkpoint and for its own completion check, so '
@@ -206,6 +217,40 @@ def main():
 
     rep = score(VAL_REPORT_START, VAL_REPORT_STOP, 'val_report scoring')
 
+    reload_check = None
+    if args.verify_reload:
+        # A genuinely independent second pass: a fresh model object, freshly built from the
+        # manifest, with the same weights loaded into it. Re-scoring the same model would
+        # only prove predict() is deterministic, which is a weaker claim.
+        model2 = build_from_manifest(args.arch, cargs, np)
+        if int(model2.count_params()) != n_params:
+            raise SystemExit(f"{LOG} the reload-check model has "
+                             f"{int(model2.count_params()):,} parameters, not {n_params:,}. "
+                             f"STOP.")
+        model2.load_weights(args.weights)
+        lo2, hi2, x2, truth2 = slice_inputs(VAL_REPORT_START, VAL_REPORT_STOP,
+                                            'val_report reload verification')
+        out2 = np.asarray(model2.predict(x2, batch_size=args.batch_size,
+                                         verbose=0)).reshape(-1)
+        prob2 = (out2 if args.arch == 'rcnn'
+                 else 1.0 / (1.0 + np.exp(-out2.astype(np.float64)))).astype(np.float32)
+        pred2 = (prob2 > 0.5).astype(np.int8)
+        max_abs = float(np.max(np.abs(prob2.astype(np.float64)
+                                      - rep['prob'].astype(np.float64))))
+        classes_same = bool(np.array_equal(pred2, rep['pred']))
+        p_L2 = float((pred2 != truth2).mean())
+        reload_check = dict(max_abs_prob_delta=max_abs,
+                            predicted_classes_identical=classes_same,
+                            p_L_first_pass=rep['p_L'], p_L_reload=p_L2,
+                            p_L_delta=p_L2 - rep['p_L'],
+                            bitwise_identical=(max_abs == 0.0))
+        print(f"{LOG} reload verification: max |delta probability| = {max_abs:.3e}  "
+              f"classes identical = {classes_same}  "
+              f"p_L {rep['p_L']:.6f} -> {p_L2:.6f} (delta {p_L2 - rep['p_L']:+.6f})")
+        print(f"{LOG}   bitwise identical: {max_abs == 0.0}. A nonzero delta is not by "
+              f"itself a failure -- it is the number to report, and it bounds how much of "
+              f"any p_L difference between runs is reload noise rather than training.")
+
     sel = None
     if args.also_score_val_select:
         # Reported only as a reload-consistency diagnostic in the pilot. No study result
@@ -235,7 +280,7 @@ def main():
         slice_start=rep['lo'], slice_stop=rep['hi'],
         val_select_slice=[VAL_SELECT_START, VAL_SELECT_STOP],
         pool=os.path.abspath(args.pool),
-        smoke=is_smoke(),
+        smoke=is_smoke(), gpu_smoke=bool(args.gpu_smoke),
         d=D, p=P, rounds=ROUNDS)
 
     summary = dict(
@@ -254,7 +299,8 @@ def main():
         per_shot_file=os.path.abspath(per_shot),
         pool=os.path.abspath(args.pool),
         utc=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        smoke=is_smoke(),
+        smoke=is_smoke(), gpu_smoke=bool(args.gpu_smoke),
+        reload_verification=reload_check,
         slice_guard=guard_summary())
     summary_path = os.path.join(args.out_dir, f'valreport_{tag}.json')
     with open(summary_path, 'w') as fh:
@@ -263,6 +309,9 @@ def main():
     print(guard_summary())
     print(f"{LOG} wrote {per_shot}")
     print(f"{LOG} wrote {summary_path}")
+    if args.gpu_smoke:
+        print(f"{LOG} GPU SMOKE ARTIFACT -- gpu_smoke=true is recorded in both files. "
+              f"The collation will refuse this run.")
     print(f"{LOG} SCORING COMPLETE {tag}")
     return 0
 

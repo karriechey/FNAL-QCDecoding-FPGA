@@ -34,7 +34,7 @@ import time
 import numpy as np
 
 from slice_guard_r5 import (assert_slice_allowed, VAL_REPORT_START, VAL_REPORT_STOP,
-                            guard_summary)
+                            TRAIN_START, TRAIN_STOP, guard_summary)
 from eval_on_tail import mcnemar_from_correct
 
 LOG = '[collate]'
@@ -73,6 +73,23 @@ def load_runs(out_root, manifest_hash, problems):
                 detail=f"run recorded {d['manifest_sha256'][:16]}..., frozen manifest is "
                        f"{manifest_hash[:16]}... -- this run describes a different set of "
                        f"configurations and is excluded"))
+            continue
+        # A GPU smoke test writes real artifacts from the real pool and the real manifest;
+        # the ONLY thing separating it from a study result is the training prefix. Both
+        # tests below are therefore hard exclusions, not warnings.
+        if d.get('gpu_smoke'):
+            problems.append(dict(
+                kind='gpu_smoke_artifact_excluded', path=path,
+                detail='this run is marked gpu_smoke=true. It exercised the hardware, not '
+                       'the study, and is never collated.'))
+            continue
+        n_train = int(d.get('n_train', -1))
+        if n_train != TRAIN_STOP - TRAIN_START:
+            problems.append(dict(
+                kind='not_a_formal_run', path=path,
+                detail=f"trained on {n_train:,} shots, but the study's training partition "
+                       f"is [{TRAIN_START:,}, {TRAIN_STOP:,}) = "
+                       f"{TRAIN_STOP - TRAIN_START:,} shots. Excluded."))
             continue
         if list(d['val_report_slice']) != [VAL_REPORT_START, VAL_REPORT_STOP]:
             problems.append(dict(kind='wrong_report_slice', path=path,

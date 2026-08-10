@@ -66,6 +66,47 @@ print(g.TRAIN_STOP, g.VAL_SELECT_START, g.VAL_SELECT_STOP - g.VAL_SELECT_START,
       g.SEALED_START, g.SEALED_STOP - g.SEALED_START)" 2>/dev/null | tail -1)
 EOF
 [ -n "${SEALED_N:-}" ] || { echo "could not read the partition boundaries from slice_guard_r5.py"; exit 1; }
+FORMAL_N_TRAIN="$N_TRAIN"
+
+# --- GPU smoke mode ---------------------------------------------------------------------
+# GPU_SMOKE=1 shortens the TRAINING PREFIX and nothing else. The pool, the frozen manifest,
+# the model code, val_select, val_report and the sealed-test guard are all the formal ones,
+# so this exercises the study's real path on the real hardware. That is the point: the
+# partition-scaling smoke mode in slice_guard_r5.py cannot be used here, because it would
+# stop the run from touching the real pool and the real manifest.
+#
+# Four things stop a GPU-smoke artifact from being read as a study result:
+#   1. it must write to an output root whose name contains 'gpusmoke', and the script
+#      refuses to start otherwise;
+#   2. every run tag carries the literal 'pr5gpusmoke';
+#   3. score_val_report_r5.py stamps gpu_smoke=true into the summary and the per-shot file;
+#   4. collate_param_reduction_r5.py rejects any run whose n_train is not the full training
+#      partition, so a smoke artifact cannot enter a results table even by accident.
+TAG_PREFIX="pr5"
+if [ "${GPU_SMOKE:-0}" = "1" ]; then
+  N_TRAIN="${N_TRAIN_OVERRIDE:?GPU_SMOKE=1 requires N_TRAIN_OVERRIDE (e.g. 50000)}"
+  if [ "$N_TRAIN" -ge "$FORMAL_N_TRAIN" ]; then
+    echo "GPU_SMOKE=1 with N_TRAIN_OVERRIDE=$N_TRAIN is not a smoke test"
+    echo "(the formal training prefix is $FORMAL_N_TRAIN). STOP."
+    exit 1
+  fi
+  TAG_PREFIX="pr5gpusmoke"
+  case "$OUTROOT" in
+    *gpusmoke*) : ;;
+    *) echo "GPU_SMOKE=1 requires an OUTROOT containing 'gpusmoke', so smoke artifacts"
+       echo "cannot land in the formal output tree. Got: $OUTROOT. STOP."; exit 1 ;;
+  esac
+  mkdir -p "$OUTROOT"
+  cat > "$OUTROOT/GPU_SMOKE_DO_NOT_USE.txt" <<MARK
+These artifacts came from a GPU smoke test, not from the study.
+The training prefix was $N_TRAIN shots, not $FORMAL_N_TRAIN.
+No number in this directory may be quoted, plotted, or collated as a study result.
+MARK
+  echo "##############################################################"
+  echo "# GPU_SMOKE=1 -- training prefix cut to $N_TRAIN shots"
+  echo "# Formal partitions, formal manifest, formal pool. NOT a run."
+  echo "##############################################################"
+fi
 
 ARCHS="${ARCHS:-rcnn gru mlp}"
 FRACTIONS="${FRACTIONS:-1.0 0.5 0.25 0.10}"
@@ -113,7 +154,7 @@ CNNMODEL_HASH=$(sha256sum CNNModel.py | awk '{print $1}')
   echo "  manifest sha256: $ACTUAL_HASH"
   echo "  CNNModel.py sha256: $CNNMODEL_HASH"
   echo "  pool           : $POOL"
-  echo "  train          : [0, $N_TRAIN)"
+  echo "  train          : [0, $N_TRAIN)${GPU_SMOKE:+   <-- GPU SMOKE, the formal prefix is $FORMAL_N_TRAIN}"
   echo "  val_select     : [$VAL_SELECT_START, $((VAL_SELECT_START+VAL_SELECT_N)))"
   echo "  val_report     : [$VAL_REPORT_START, $((VAL_REPORT_START+VAL_REPORT_N)))"
   echo "  sealed test    : [$SEALED_START, $((SEALED_START+SEALED_N)))  NEVER READ"
@@ -180,7 +221,7 @@ for arch in $ARCHS; do
       # The run tag carries architecture, fraction, MEASURED parameter count, seed and
       # n_train, so two rungs that happen to share a fraction label but not a parameter
       # count can never collide in the filesystem or in collation.
-      TAG="pr5_${arch}_frac${frac}_p${ACTUAL_PARAMS}_seed${seed}_ntr${N_TRAIN}"
+      TAG="${TAG_PREFIX}_${arch}_frac${frac}_p${ACTUAL_PARAMS}_seed${seed}_ntr${N_TRAIN}"
       RUN_DIR="$OUTROOT/$arch/frac${frac}/seed${seed}"
       CKPT_DIR="$RUN_DIR/ckpt"
       RUN_LOG="$RUN_DIR/${TAG}_${STAMP}.log"
@@ -291,6 +332,7 @@ PYEOF
       $PY score_val_report_r5.py \
         --arch "$arch" --fraction "$frac" --seed "$seed" --n-train "$N_TRAIN" \
         --weights "$BEST" --manifest "$MANIFEST" --pool "$POOL" --run-tag "$TAG" \
+        ${GPU_SMOKE:+--gpu-smoke --verify-reload --also-score-val-select} \
         --out-dir "$RUN_DIR" --batch-size "$BATCH" 2>&1 | tee -a "$RUN_LOG"
 
       echo "RUN COMPLETE $TAG  $(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$RUN_LOG" "$DRIVER_LOG"
