@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
+# Last updated: 2026-08-12
 """Train ONE RCNN point: a single (d, p, seed, n_train) on a fixed held-out tail.
 
-This is the per-job unit of the convergence ladder and the HTCondor fan-out. Unlike the
+This is the per-job unit of the convergence ladder. Unlike the
 committed benchmark_rcnn.py (which sets te = slice(ntr, ntr+nte) -- a test block that
 MOVES as ntr grows), this uses the FIXED tail te = slice(N-nte, N) for every rung, so the
 p_L-vs-N learning curve is measured on identical shots and nested front prefixes never
@@ -69,7 +70,31 @@ def learning_rate_scheduler(epoch, lr):
     return max(sched, LR_FLOOR)
 
 
-LR_SCHEDULES.update(original=learning_rate_scheduler, slow=learning_rate_scheduler_slow)
+def learning_rate_scheduler_flat(epoch, lr):
+    """Constant 0.003, with no warm-up ramp.
+
+    Diagnostic schedule for the d=9 investigation. Both 'original' and 'slow' open at
+    0.010 (epoch 0 gives 0.001 * 10), a value inherited from the d=5, r=3 reference
+    notebook. At d=9 the model unrolls 49 kernel positions over 9 rounds instead of 9
+    positions over 3, and a d=9, r=9 run at 10M shots sat at chance accuracy (0.525)
+    through 13 epochs while the d=5 reference reached 0.797 in its first epoch. An
+    opening rate that is too large for the deeper unroll would produce exactly that:
+    the model is pushed into a flat region in the first few steps and the decaying rate
+    never lets it back out.
+
+    0.003 is the rate the hard-label MLP and GRU students used on this same d=9 pool,
+    where the GRU did learn (p_L 0.328 against a 0.489 base rate). Using the same value
+    keeps the comparison honest.
+
+    A run using this schedule is a diagnostic. Comparing it against a d=5 number
+    requires re-running d=5 on the same schedule, since the learning rate is one of the
+    quantities the distance-scaling experiment holds fixed.
+    """
+    return 0.003
+
+
+LR_SCHEDULES.update(original=learning_rate_scheduler, slow=learning_rate_scheduler_slow,
+                    flat=learning_rate_scheduler_flat)
 
 
 def lookup_mwpm(data_dir, d, p, rounds):
@@ -109,10 +134,13 @@ def run():
     ap.add_argument('--out-dir', default=os.path.expanduser('~/rcnn_threshold/out'))
     ap.add_argument('--no-save-weights', action='store_true', default=True)
     ap.add_argument('--save-weights', dest='no_save_weights', action='store_false')
-    ap.add_argument('--lr-schedule', choices=['original', 'slow'], default='original',
+    ap.add_argument('--lr-schedule', choices=['original', 'slow', 'flat'],
+                    default='original',
                     help="'original' is the schedule every r=3 run used. 'slow' keeps the "
                          "same warm-up but decays by 0.93/epoch with a 1e-5 floor, so late "
-                         "epochs still move. Every rung of a ladder must use the same one.")
+                         "epochs still move. 'flat' holds 0.003 throughout and skips the "
+                         "warm-up ramp; it is a diagnostic for the d=9 investigation. "
+                         "Every rung of a ladder must use the same one.")
     ap.add_argument('--no-early-stopping', action='store_true',
                     help='fixed --epochs, no EarlyStopping (ladder wants a fixed budget).')
     # --- explicit validation (Option A). Without these the original validation_split
@@ -171,12 +199,20 @@ def run():
     if not os.path.exists(fn):
         raise SystemExit(f"[train] MISSING {fn} -- run generate_pools.py first. STOP.")
     z = np.load(fn)
-    measurements = z['measurements'].astype(binary_t)
-    det_evts = z['det_evts'].astype(binary_t)
-    flips = z['flips'].astype(binary_t)
+    # copy=False: the pools are already int8, so a plain .astype() duplicates every
+    # array for nothing. At d=9 that is an extra 8.3 GB for `measurements` alone.
+    measurements = z['measurements'].astype(binary_t, copy=False)
+    det_evts = z['det_evts'].astype(binary_t, copy=False)
+    flips = z['flips'].astype(binary_t, copy=False)
     det_bits, _, _ = split_measurements(measurements, d, idx_t)
 
     N = measurements.shape[0]
+    # `measurements` is dead after this point -- det_bits is a fresh array (np.delete
+    # copies) and N is the only other thing read from it. Freeing it returns 8.3 GB at
+    # d=9, r=9, which matters because the EAF pod's cgroup caps the process at 90 GB and
+    # a d=9 run needs ~71 GB for the training graph alone.
+    del measurements
+    z.close()
     # FIXED tail (same shots for every rung) + nested front prefix; provably disjoint.
     te = slice(N - nte, N)
     tr = slice(0, ntr)
