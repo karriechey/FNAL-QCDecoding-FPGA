@@ -157,6 +157,13 @@ def run():
                          'last --n-test shots ARE the sealed test partition, so the '
                          'post-training evaluation would read it. Report validation p_L '
                          'instead and score the test set once, later, after selection.')
+    ap.add_argument('--resume', action='store_true',
+                    help='continue from the resume checkpoint in --ckpt-dir when one '
+                         'matches this run. Restores weights, Adam slots, learning rate, '
+                         'EarlyStopping and ModelCheckpoint state, and the epoch counter. '
+                         'Note: a resumed run reshuffles from a fresh RNG stream, so it '
+                         'differs from an uninterrupted one even under '
+                         '--require-determinism; resumed_from_epoch records it.')
     ap.add_argument('--ckpt-dir', default=None,
                     help='write best-validation and true final-epoch checkpoints here')
     ap.add_argument('--run-tag', default=None, help='prefix for checkpoint filenames')
@@ -250,11 +257,10 @@ def run():
     _ = model([det_bits[0:1], det_evts[0:1]])  # build
     n_params = int(model.count_params())
 
-    # Built in explicit order. Keras runs on_epoch_end in list order, and
+    # Keras runs on_epoch_end in list order, and
     # EarlyStopping(restore_best_weights=True) swaps the best weights back in during its
     # own on_epoch_end on the stopping epoch. Anything that must observe the true final
-    # epoch has to come BEFORE it, so the list is assembled front-to-back rather than by
-    # insert(0, ...), which silently reverses the intended precedence.
+    # epoch has to come BEFORE it, so the list is assembled front-to-back.
     save_last_cb = None
     if args.ckpt_dir:
         os.makedirs(args.ckpt_dir, exist_ok=True)
@@ -265,10 +271,98 @@ def run():
                 self.model.save_weights(ck + '.lastepoch.weights.h5')
         save_last_cb = _SaveLastEpoch()
 
+    # Resume Mechanism
+    # Restarts continue from the last epoch. Model weights and Adam slots go through
+    # tf.train.Checkpoint; learning rate, EarlyStopping and ModelCheckpoint state go
+    # through a JSON, both written every epoch.
+    resume_state = None
+    resume_path = (ck + '.resume') if args.ckpt_dir else None      # weights + optimizer
+    resume_json = (ck + '.resume.json') if args.ckpt_dir else None  # lr + callback state
+    # Resume is valid only for the same configuration; change any of these and it refuses.
+    run_identity = dict(d=d, p=p, rounds=rounds, seed=seed, n_train=ntr,
+                        batch_size=args.batch_size, lr_schedule=args.lr_schedule,
+                        epochs=args.epochs)
+
+    if args.resume and resume_json and os.path.exists(resume_json):
+        with open(resume_json) as fh:
+            cand = json.load(fh)
+        if cand.get('identity') != run_identity:
+            raise SystemExit(
+                f"[train] resume checkpoint at {resume_json} belongs to a different run:\n"
+                f"    stored:  {cand.get('identity')}\n"
+                f"    current: {run_identity}\n"
+                "Delete it or point --ckpt-dir elsewhere. STOP.")
+        resume_state = cand
+        print(f"[train] resuming from epoch {resume_state['epoch']} "
+              f"(lr {resume_state['lr']:.6g}, best val_loss {resume_state['early_best']:.6f})",
+              flush=True)
+    elif args.resume:
+        print("[train] --resume given, no resume checkpoint found; starting from epoch 0",
+              flush=True)
+
+    initial_epoch = resume_state['epoch'] if resume_state else 0
+    prior_history = resume_state['history'] if resume_state else None
+
+    class _ResumableEarlyStopping(tf.keras.callbacks.EarlyStopping):
+        """EarlyStopping carrying its best score and patience counter across a restart."""
+
+        def __init__(self, *a, resume_best=None, resume_wait=0, **kw):
+            super().__init__(*a, **kw)
+            self._resume_best = resume_best
+            self._resume_wait = resume_wait
+
+        def on_train_begin(self, logs=None):
+            super().on_train_begin(logs)
+            if self._resume_best is not None:
+                self.best = self._resume_best
+                self.wait = self._resume_wait
+
     early_cb = None
     if not args.no_early_stopping:
-        early_cb = tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss', patience=args.patience, restore_best_weights=True)
+        early_cb = _ResumableEarlyStopping(
+            monitor='val_loss', patience=args.patience, restore_best_weights=True,
+            resume_best=(resume_state['early_best'] if resume_state else None),
+            resume_wait=(resume_state['early_wait'] if resume_state else 0))
+
+    ckpt_cb = None
+    if args.ckpt_dir:
+        ckpt_cb = tf.keras.callbacks.ModelCheckpoint(
+            ck + '.best.weights.h5', monitor='val_loss', mode='min',
+            save_best_only=True, save_weights_only=True, verbose=0)
+        if resume_state:
+            ckpt_cb.best = resume_state['ckpt_best']   # keeps a worse epoch from overwriting
+
+    resume_cb = None
+    if args.ckpt_dir:
+        tf_ckpt = tf.train.Checkpoint(model=model, optimizer=model.optimizer)
+
+        class _WriteResumeState(tf.keras.callbacks.Callback):
+            """Write the resume checkpoint once per epoch."""
+
+            def on_epoch_end(self, epoch, logs=None):
+                logs = logs or {}
+                for k, v in (logs.items()):
+                    hist_accum.setdefault(k, []).append(float(v))
+                tf_ckpt.write(resume_path)
+                state = dict(
+                    identity=run_identity,
+                    epoch=epoch + 1,
+                    lr=float(tf.keras.backend.get_value(self.model.optimizer.lr)),
+                    early_best=(float(early_cb.best) if early_cb is not None
+                                else float('inf')),
+                    early_wait=(int(early_cb.wait) if early_cb is not None else 0),
+                    ckpt_best=(float(ckpt_cb.best) if ckpt_cb is not None
+                               else float('inf')),
+                    history=hist_accum,
+                )
+                tmp = resume_json + '.tmp'
+                with open(tmp, 'w') as fh:
+                    json.dump(state, fh)
+                os.replace(tmp, resume_json)           # rename last, so a kill mid-write keeps the old state
+
+        resume_cb = _WriteResumeState()
+
+    hist_accum = {k: list(v) for k, v in prior_history.items()} if prior_history else {}  # spans restarts
 
     callbacks = []
     if save_last_cb is not None:
@@ -277,24 +371,36 @@ def run():
         callbacks.append(early_cb)
     callbacks.append(tf.keras.callbacks.LearningRateScheduler(
         LR_SCHEDULES[args.lr_schedule]))
-    if args.ckpt_dir:
-        callbacks.append(tf.keras.callbacks.ModelCheckpoint(
-            ck + '.best.weights.h5', monitor='val_loss', mode='min',
-            save_best_only=True, save_weights_only=True, verbose=0))
+    if ckpt_cb is not None:
+        callbacks.append(ckpt_cb)
+    if resume_cb is not None:
+        callbacks.append(resume_cb)                    # must follow the callbacks it records
     print(f"[train] lr schedule: {args.lr_schedule}", flush=True)
     print("[train] callback order: " +
           " -> ".join(type(c).__name__ for c in callbacks), flush=True)
+
+    if resume_state:
+        # Adam slots are created on the first gradient step, so this restore is deferred
+        # until then; expect_partial() silences the not-yet-consumed warning.
+        tf_ckpt.restore(resume_path).expect_partial()
+        tf.keras.backend.set_value(model.optimizer.lr, resume_state['lr'])  # schedule is multiplicative
+        print(f"[train] restored weights, optimizer and lr; continuing at epoch "
+              f"{initial_epoch} of {args.epochs}", flush=True)
 
     t0 = time.time()
     fit_kw = (dict(validation_data=val_data) if val_data is not None
               else dict(validation_split=args.val_split))
     hist = model.fit(
         x=[det_bits[tr], det_evts[tr]], y=flips[tr],
-        batch_size=args.batch_size, epochs=args.epochs,
+        batch_size=args.batch_size, epochs=args.epochs, initial_epoch=initial_epoch,
         shuffle=True, verbose=2, callbacks=callbacks, **fit_kw)
     train_time = time.time() - t0
-    epochs_ran = len(hist.history['loss'])
-    best_val = float(min(hist.history['val_loss']))
+
+    # hist_accum spans restarts; hist.history covers this process only (no --ckpt-dir).
+    full_history = hist_accum if hist_accum.get('loss') else dict(hist.history)
+    epochs_ran = len(full_history['loss'])
+    best_val = float(min(full_history['val_loss']))
+    resumed_from = initial_epoch if resume_state else 0
 
     if args.seal_test:
         # score the dedicated validation block; the sealed test partition is never read
@@ -327,7 +433,11 @@ def run():
               'epochs', 'epochs_ran', 'batch_size', 'n_params', 'p_L', 'mwpm_p_L',
               'base_rate', 'beats_base_rate', 'best_val_loss', 'train_time_s',
               # which shots p_L was measured on, and where mwpm_p_L came from
-              'eval_start', 'eval_stop', 'eval_partition', 'mwpm_source']
+              'eval_start', 'eval_stop', 'eval_partition', 'mwpm_source',
+              # 0 for an uninterrupted run; the epoch a restart picked up from
+              # otherwise. A resumed run reshuffles from a fresh RNG stream, so it
+              # is not bit-identical to one that ran straight through.
+              'resumed_from_epoch']
     with open(os.path.join(args.out_dir, tag + '.csv'), 'w', newline='') as cf:
         wri = csv.DictWriter(cf, fieldnames=fields)
         wri.writeheader()
@@ -342,9 +452,9 @@ def run():
                          else ('stored_baseline' if mwpm is not None else 'none')),
             base_rate=round(base_rate, 5),
             beats_base_rate=int(beats_base), best_val_loss=round(best_val, 5),
-            train_time_s=round(train_time, 1)))
+            train_time_s=round(train_time, 1), resumed_from_epoch=resumed_from))
     with open(os.path.join(args.out_dir, tag + '.history.json'), 'w') as hf:
-        json.dump({k2: [float(x) for x in v] for k2, v in hist.history.items()}, hf)
+        json.dump({k2: [float(x) for x in v] for k2, v in full_history.items()}, hf)
 
     # Save the trained weights so the model can be RE-EVALUATED on a different tail
     # (bigger n_test, another p, a sanity re-check) via eval_on_tail.py WITHOUT retraining.
