@@ -231,11 +231,20 @@ def main():
     for (d, r), ok in results.items():
         print(f"  d={d}, r={r}: {'PASS' if ok else 'FAIL'}")
     if all(results.values()):
-        print("\n  The det_bits kernel grouping is consistent at every distance checked.")
-        print("  The d=9 learning failure is not caused by this path.")
+        print("\n  The det_bits kernel grouping is internally consistent at every distance")
+        print("  checked: bits stay within their round, every kernel slot is fed by exactly")
+        print("  one detector, and the lattice sites feeding each kernel are the ones")
+        print("  shift_frame places there.")
+        print()
+        print("  Scope. This compares group_det_bits_kxk against shift_frame, and the two")
+        print("  share that placement function, so a fault living inside shift_frame itself")
+        print("  would satisfy both sides and pass here. What this rules out is a")
+        print("  disagreement between kernel placement and bit selection, not an error in")
+        print("  the shared convention. An independent check would need the expected")
+        print("  windows derived from the lattice definition instead.")
     else:
         print("\n  A failing distance here would corrupt the RCNN's det_bits input and")
-        print("  explain the d=9 result directly. Fix before rerunning Exp 10.")
+        print("  would need fixing before any d=9 result is trusted.")
 
 
 if __name__ == '__main__':
