@@ -39,3 +39,6 @@ PROJECT_NOTES.md
 
 # Editor and tooling scratch files.
 *.original.md
+
+# Raw stdout pasted from EAF runs. Same category as *.log above.
+rcnn_threshold/*.txt
