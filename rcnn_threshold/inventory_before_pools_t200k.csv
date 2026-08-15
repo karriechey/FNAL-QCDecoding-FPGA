@@ -1,0 +1,235 @@
+experiment,dir,file,arch,n_train,n_test,seed,w_bits,a_bits,alpha,p_L,mwpm_p_L,mwpm_source,test_pool,train_pool_dir,run_utc,mtime
+unknown (),,rcnn_d5_p0.010_r3_w6_a32_seed2_ntr100000.csv,FullRCNNModel_QAT,100000,2000,2,6,32,,0.276,0.0451,,same-pool-tail,,,2026-07-19
+unknown (),,rcnn_d5_p0.010_r3_w6_a32_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,2000,2,6,32,,0.051,0.0451,,same-pool-tail,,,2026-07-19
+unknown (),,inventory_before_pools_t200k.csv,,100000,2000,2,,,,0.276,0.0451,,same-pool-tail,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,2000,2,,,,0.051,0.0451,,same-pool-tail,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,100000,10000,0,,,,0.2056,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,10000,0,,,,0.0451,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,2000000,10000,0,,,,0.0515,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,300000,10000,0,,,,0.1452,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,5000000,10000,0,,,,0.0494,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,800000,10000,0,,,,0.0843,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,100000,10000,1,,,,0.2415,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,10000,1,,,,0.0442,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,2000000,10000,1,,,,0.0523,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,300000,10000,1,,,,0.1263,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,5000000,10000,1,,,,0.047,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,800000,10000,1,,,,0.0798,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,100000,10000,2,,,,0.2284,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,10000,2,,,,0.0463,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,2000000,10000,2,,,,0.0635,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,300000,10000,2,,,,0.1353,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,5000000,10000,2,,,,0.0502,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,800000,10000,2,,,,0.0778,0.0451,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,200000,10000,0,,,,0.2644,0.0891,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04591,0.04909,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.052455,0.04909,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04458,0.04909,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,20000000,200000,0,,,,0.04591,0.04909,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,20000000,200000,1,,,,0.052455,0.04909,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,20000000,200000,2,,,,0.04458,0.04909,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04553,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046395,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04651,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04553,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046395,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04651,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.115335,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.128855,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.139705,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.059895,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.06436,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.05923,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.057425,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.053295,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.05319,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.046755,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.047035,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.047755,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.045465,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.046255,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.046115,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.047715,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04558,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046675,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046675,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.045645,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04606,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046595,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.046675,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.047715,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.04558,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.04606,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.045645,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.046595,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.04659,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.04731,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.046565,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.2826,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.2826,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.2826,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.04801,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.04936,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.047705,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.048565,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.04629,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.04714,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,0,,,,0.04989,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,1,,,,0.047995,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,2,,,,0.047845,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.04659,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.04731,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.046565,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.04989,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.047995,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.047845,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,1000000,200000,0,,,0.0,0.067605,,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,1000000,200000,1,,,0.0,0.075125,,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,1000000,200000,2,,,0.0,0.067305,,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,1000000,200000,0,,,1.0,0.07725,,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,1000000,200000,1,,,1.0,0.08044,,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,1000000,200000,2,,,1.0,0.077295,,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,100000,200000,0,,,,0.199905,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.04643,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,2000000,200000,0,,,,0.05271,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,300000,200000,0,,,,0.154465,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,5000000,200000,0,,,,0.04816,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,800000,200000,0,,,,0.07565,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,100000,200000,1,,,,0.201435,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.045625,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,2000000,200000,1,,,,0.053415,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,300000,200000,1,,,,0.146015,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,5000000,200000,1,,,,0.048205,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,800000,200000,1,,,,0.069065,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,100000,200000,2,,,,0.193085,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.046775,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,2000000,200000,2,,,,0.05381,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,300000,200000,2,,,,0.129765,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,5000000,200000,2,,,,0.04963,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,800000,200000,2,,,,0.07985,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04562,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046265,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04562,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046265,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046485,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,0,,,,0.04562,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,1,,,,0.046265,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,10000000,200000,2,,,,0.046485,0.04875,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04553,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.046395,0.049405,,,,,2026-07-31
+unknown (),,inventory_before_pools_t200k.csv,,,200000,,,,,0.04651,0.049405,,,,,2026-07-31
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed0_ntr100000.csv,FullRCNNModel,100000,10000,0,,,,0.2056,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed0_ntr10000000.csv,FullRCNNModel,10000000,10000,0,,,,0.0451,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed0_ntr2000000.csv,FullRCNNModel,2000000,10000,0,,,,0.0515,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed0_ntr300000.csv,FullRCNNModel,300000,10000,0,,,,0.1452,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed0_ntr5000000.csv,FullRCNNModel,5000000,10000,0,,,,0.0494,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed0_ntr800000.csv,FullRCNNModel,800000,10000,0,,,,0.0843,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed1_ntr100000.csv,FullRCNNModel,100000,10000,1,,,,0.2415,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed1_ntr10000000.csv,FullRCNNModel,10000000,10000,1,,,,0.0442,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed1_ntr2000000.csv,FullRCNNModel,2000000,10000,1,,,,0.0523,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed1_ntr300000.csv,FullRCNNModel,300000,10000,1,,,,0.1263,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed1_ntr5000000.csv,FullRCNNModel,5000000,10000,1,,,,0.047,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed1_ntr800000.csv,FullRCNNModel,800000,10000,1,,,,0.0798,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed2_ntr100000.csv,FullRCNNModel,100000,10000,2,,,,0.2284,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed2_ntr10000000.csv,FullRCNNModel,10000000,10000,2,,,,0.0463,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed2_ntr2000000.csv,FullRCNNModel,2000000,10000,2,,,,0.0635,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed2_ntr300000.csv,FullRCNNModel,300000,10000,2,,,,0.1353,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed2_ntr5000000.csv,FullRCNNModel,5000000,10000,2,,,,0.0502,0.0451,,,,,2026-06-30
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r3_seed2_ntr800000.csv,FullRCNNModel,800000,10000,2,,,,0.0778,0.0451,,,,,2026-06-29
+RCNN data-volume ladder (10k tail),out,rcnn_d5_p0.010_r5_seed0_ntr200000.csv,FullRCNNModel,200000,10000,0,,,,0.2644,0.0891,,,,,2026-06-23
+RCNN 20M point (Experiment 5),out_20M,mcnemar_20M.csv,,,200000,,,,,0.04591,0.04909,,,,,2026-07-06
+RCNN 20M point (Experiment 5),out_20M,mcnemar_20M.csv,,,200000,,,,,0.052455,0.04909,,,,,2026-07-06
+RCNN 20M point (Experiment 5),out_20M,mcnemar_20M.csv,,,200000,,,,,0.04458,0.04909,,,,,2026-07-06
+RCNN 20M point (Experiment 5),out_20M,rcnn_d5_p0.010_r3_seed0_ntr20000000.csv,FullRCNNModel,20000000,200000,0,,,,0.04591,0.04909,,,,,2026-07-04
+RCNN 20M point (Experiment 5),out_20M,rcnn_d5_p0.010_r3_seed1_ntr20000000.csv,FullRCNNModel,20000000,200000,1,,,,0.052455,0.04909,,,,,2026-07-04
+RCNN 20M point (Experiment 5),out_20M,rcnn_d5_p0.010_r3_seed2_ntr20000000.csv,FullRCNNModel,20000000,200000,2,,,,0.04458,0.04909,,,,,2026-07-05
+Teacher weight-only QAT sweep,out_q,fp32_anchor.csv,,,200000,,,,,0.04553,0.049405,,,,,2026-07-09
+Teacher weight-only QAT sweep,out_q,fp32_anchor.csv,,,200000,,,,,0.046395,0.049405,,,,,2026-07-09
+Teacher weight-only QAT sweep,out_q,fp32_anchor.csv,,,200000,,,,,0.04651,0.049405,,,,,2026-07-09
+Teacher weight-only QAT sweep,out_q,fp32_anchor.csv,,,200000,,,,,0.04553,0.049405,,,,,2026-07-09
+Teacher weight-only QAT sweep,out_q,fp32_anchor.csv,,,200000,,,,,0.046395,0.049405,,,,,2026-07-09
+Teacher weight-only QAT sweep,out_q,fp32_anchor.csv,,,200000,,,,,0.04651,0.049405,,,,,2026-07-09
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w2_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,2,,,0.115335,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-11
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w2_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,2,,,0.128855,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w2_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,2,,,0.139705,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w3_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,3,,,0.059895,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w3_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,3,,,0.06436,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w3_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,3,,,0.05923,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w4_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,4,,,0.057425,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w4_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,4,,,0.053295,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w4_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,4,,,0.05319,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w6_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,6,,,0.046755,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w6_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,6,,,0.047035,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w6_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,6,,,0.047755,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-10
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w8_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,8,,,0.045465,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-09
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w8_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,8,,,0.046255,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-09
+Teacher weight-only QAT sweep,out_q,rcnn_d5_p0.010_r3_w8_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,8,,,0.046115,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-09
+Teacher QAT McNemar,out_q_mcnemar,mcnemar_knee.csv,,,200000,,,,,0.047715,0.049405,,,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,mcnemar_knee.csv,,,200000,,,,,0.04558,0.049405,,,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,mcnemar_knee.csv,,,200000,,,,,0.046675,0.049405,,,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,mcnemar_knee.csv,,,200000,,,,,0.046675,0.049405,,,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,mcnemar_knee.csv,,,200000,,,,,0.045645,0.049405,,,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,mcnemar_knee.csv,,,200000,,,,,0.04606,0.049405,,,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,mcnemar_knee.csv,,,200000,,,,,0.046595,0.049405,,,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,rcnn_d5_p0.010_r3_w6_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,6,,,0.046675,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,rcnn_d5_p0.010_r3_w6_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,6,,,0.047715,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,rcnn_d5_p0.010_r3_w6_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,6,,,0.04558,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,rcnn_d5_p0.010_r3_w8_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,8,,,0.04606,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,rcnn_d5_p0.010_r3_w8_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,8,,,0.045645,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-13
+Teacher QAT McNemar,out_q_mcnemar,rcnn_d5_p0.010_r3_w8_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,8,,,0.046595,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-13
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a32_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,6,32,,0.04659,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-19
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a32_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,6,32,,0.04731,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-19
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a32_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,6,32,,0.046565,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-19
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a4_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,6,4,,0.2826,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-20
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a4_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,6,4,,0.2826,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-20
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a4_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,6,4,,0.2826,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-20
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a6_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,6,6,,0.04801,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-19
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a6_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,6,6,,0.04936,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-19
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a6_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,6,6,,0.047705,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-20
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a8_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,6,8,,0.048565,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-19
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a8_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,6,8,,0.04629,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-19
+Teacher activation sweep (phase 2a),out_q_phase2a,rcnn_d5_p0.010_r3_w6_a8_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,6,8,,0.04714,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-19
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,phase2a_mcnemar_relu5.csv,,,200000,0,6,6,,0.04989,0.049405,,,,,2026-07-21
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,phase2a_mcnemar_relu5.csv,,,200000,1,6,6,,0.047995,0.049405,,,,,2026-07-21
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,phase2a_mcnemar_relu5.csv,,,200000,2,6,6,,0.047845,0.049405,,,,,2026-07-21
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,rcnn_d5_p0.010_r3_w6_a32_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,6,32,,0.04659,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-20
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,rcnn_d5_p0.010_r3_w6_a32_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,6,32,,0.04731,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-20
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,rcnn_d5_p0.010_r3_w6_a32_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,6,32,,0.046565,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-20
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,rcnn_d5_p0.010_r3_w6_a6_seed0_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,0,6,6,,0.04989,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-21
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,rcnn_d5_p0.010_r3_w6_a6_seed1_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,1,6,6,,0.047995,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-21
+"Teacher activation sweep, ReLU I=5",out_q_phase2a_relu5,rcnn_d5_p0.010_r3_w6_a6_seed2_ntr10000000.csv,FullRCNNModel_QAT,10000000,200000,2,6,6,,0.047845,0.0451,,data_d5_p0.010_r3_TAIL200k.npz,,,2026-07-21
+unknown (out_student_grid),out_student_grid,grid_mlp_alpha0.0_seed0_ntr1000000.csv,mlp_student,1000000,200000,0,,,0.0,0.067605,,,,,,2026-07-31
+unknown (out_student_grid),out_student_grid,grid_mlp_alpha0.0_seed1_ntr1000000.csv,mlp_student,1000000,200000,1,,,0.0,0.075125,,,,,,2026-07-31
+unknown (out_student_grid),out_student_grid,grid_mlp_alpha0.0_seed2_ntr1000000.csv,mlp_student,1000000,200000,2,,,0.0,0.067305,,,,,,2026-07-31
+unknown (out_student_grid),out_student_grid,grid_mlp_alpha1.0_seed0_ntr1000000.csv,mlp_student,1000000,200000,0,,,1.0,0.07725,,,,,,2026-07-31
+unknown (out_student_grid),out_student_grid,grid_mlp_alpha1.0_seed1_ntr1000000.csv,mlp_student,1000000,200000,1,,,1.0,0.08044,,,,,,2026-07-31
+unknown (out_student_grid),out_student_grid,grid_mlp_alpha1.0_seed2_ntr1000000.csv,mlp_student,1000000,200000,2,,,1.0,0.077295,,,,,,2026-07-31
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed0_ntr100000.csv,FullRCNNModel,100000,200000,0,,,,0.199905,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed0_ntr10000000.csv,FullRCNNModel,10000000,200000,0,,,,0.04643,0.04875,,,,,2026-07-01
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed0_ntr2000000.csv,FullRCNNModel,2000000,200000,0,,,,0.05271,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed0_ntr300000.csv,FullRCNNModel,300000,200000,0,,,,0.154465,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed0_ntr5000000.csv,FullRCNNModel,5000000,200000,0,,,,0.04816,0.04875,,,,,2026-07-01
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed0_ntr800000.csv,FullRCNNModel,800000,200000,0,,,,0.07565,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed1_ntr100000.csv,FullRCNNModel,100000,200000,1,,,,0.201435,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed1_ntr10000000.csv,FullRCNNModel,10000000,200000,1,,,,0.045625,0.04875,,,,,2026-07-01
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed1_ntr2000000.csv,FullRCNNModel,2000000,200000,1,,,,0.053415,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed1_ntr300000.csv,FullRCNNModel,300000,200000,1,,,,0.146015,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed1_ntr5000000.csv,FullRCNNModel,5000000,200000,1,,,,0.048205,0.04875,,,,,2026-07-01
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed1_ntr800000.csv,FullRCNNModel,800000,200000,1,,,,0.069065,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed2_ntr100000.csv,FullRCNNModel,100000,200000,2,,,,0.193085,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed2_ntr10000000.csv,FullRCNNModel,10000000,200000,2,,,,0.046775,0.04875,,,,,2026-07-01
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed2_ntr2000000.csv,FullRCNNModel,2000000,200000,2,,,,0.05381,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed2_ntr300000.csv,FullRCNNModel,300000,200000,2,,,,0.129765,0.04875,,,,,2026-07-02
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed2_ntr5000000.csv,FullRCNNModel,5000000,200000,2,,,,0.04963,0.04875,,,,,2026-07-01
+RCNN data-volume ladder (200k tail),out_t200k,rcnn_d5_p0.010_r3_seed2_ntr800000.csv,FullRCNNModel,800000,200000,2,,,,0.07985,0.04875,,,,,2026-07-02
+"RCNN 10M retrain, weights saved",out_t200k_w,mcnemar.csv,,,200000,,,,,0.04562,0.04875,,,,,2026-07-03
+"RCNN 10M retrain, weights saved",out_t200k_w,mcnemar.csv,,,200000,,,,,0.046265,0.04875,,,,,2026-07-03
+"RCNN 10M retrain, weights saved",out_t200k_w,mcnemar_cpu.csv,,,200000,,,,,0.04562,0.04875,,,,,2026-07-03
+"RCNN 10M retrain, weights saved",out_t200k_w,mcnemar_cpu.csv,,,200000,,,,,0.046265,0.04875,,,,,2026-07-03
+"RCNN 10M retrain, weights saved",out_t200k_w,mcnemar_cpu.csv,,,200000,,,,,0.046485,0.04875,,,,,2026-07-03
+"RCNN 10M retrain, weights saved",out_t200k_w,rcnn_d5_p0.010_r3_seed0_ntr10000000.csv,FullRCNNModel,10000000,200000,0,,,,0.04562,0.04875,,,,,2026-07-02
+"RCNN 10M retrain, weights saved",out_t200k_w,rcnn_d5_p0.010_r3_seed1_ntr10000000.csv,FullRCNNModel,10000000,200000,1,,,,0.046265,0.04875,,,,,2026-07-03
+"RCNN 10M retrain, weights saved",out_t200k_w,rcnn_d5_p0.010_r3_seed2_ntr10000000.csv,FullRCNNModel,10000000,200000,2,,,,0.046485,0.04875,,,,,2026-07-03
+unknown (teacher_tail_scores.csv),teacher_tail_scores.csv,teacher_tail_scores.csv,,,200000,,,,,0.04553,0.049405,,,,,2026-07-31
+unknown (teacher_tail_scores.csv),teacher_tail_scores.csv,teacher_tail_scores.csv,,,200000,,,,,0.046395,0.049405,,,,,2026-07-31
+unknown (teacher_tail_scores.csv),teacher_tail_scores.csv,teacher_tail_scores.csv,,,200000,,,,,0.04651,0.049405,,,,,2026-07-31
