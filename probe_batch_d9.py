@@ -150,6 +150,12 @@ def measure(d, rounds, batch, samples, weight_bits=None, forward_only=False):
     os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
     import tensorflow as tf
     assert_pinned_stack()
+    # With TF_DETERMINISTIC_OPS=1 TensorFlow refuses to run any random op without an
+    # explicit global seed, and this script has several: weight initialisation and
+    # fit()'s shuffle. The production runs set that variable, so the probe has to run
+    # under it too -- deterministic kernels can differ in speed from the default ones,
+    # and a benchmark taken without it would misprice the runs it exists to price.
+    tf.random.set_seed(0)
     start_rss_ticker()
 
     # Quantization inflates the traced graph -- fake-quant nodes at every weight's point
@@ -317,8 +323,11 @@ def main():
         if args.forward_only:
             cmd += ['--forward-only']
         try:
+            # errors='replace': TensorFlow's CUDA layer emits non-UTF-8 bytes on
+            # stderr, and a strict decode turns that into a crash that loses every
+            # measurement taken so far.
             proc = subprocess.run(cmd, capture_output=True, text=True,
-                                  timeout=args.timeout)
+                                  errors='replace', timeout=args.timeout)
         except subprocess.TimeoutExpired as e:
             got = last_rss(e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr)
             print(f"[probe] {b:>7} {'t/o':>5}   timeout after {args.timeout}s{got}")
