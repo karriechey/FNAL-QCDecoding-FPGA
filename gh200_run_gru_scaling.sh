@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# Created: 2026-08-19
+# Last updated: 2026-08-19
+#
+# GRU distance scaling at p=0.004 on grace1 (GH200). Hard labels, batch 10,000, seeds 0/1/2.
+# Runs inside the qdec:tf215 podman container.
+#
+#     D=7 ROUNDS=7 bash gh200_run_gru_scaling.sh    # new distance-scaling point
+#     D=5 ROUNDS=5 bash gh200_run_gru_scaling.sh    # d=5 rerun at batch 10,000
+#
+# units=140 at both distances. Params differ because the input width does:
+# 69,441 at d=5 (6 timesteps x 24 positions), 79,521 at d=7 (8 x 48).
+set -euo pipefail
+
+D="${D:-7}"
+ROUNDS="${ROUNDS:-$D}"
+P="${P:-0.004}"
+SEEDS="${SEEDS:-0 1 2}"
+NTRAIN="${NTRAIN:-10000000}"
+BATCH="${BATCH:-10000}"
+EPOCHS="${EPOCHS:-50}"
+PATIENCE="${PATIENCE:-5}"
+LR="${LR:-0.003}"          # constant; passing --lr detaches the teacher LR schedule
+UNITS="${UNITS:-140}"
+
+# Pools sit in $HOME on grace1; pass POOL explicitly from the podman mount.
+POOL="${POOL:-$HOME/pools_d${D}_p004_19M/data_d${D}_p0.004_r${ROUNDS}_FORMAL.npz}"
+
+# Experiment 13 partitions. Changing these breaks comparability with the p=0.004 corpus.
+VAL_START="${VAL_START:-15000000}"        # early stopping, checkpoint selection
+VAL_N="${VAL_N:-200000}"
+EVAL_START="${EVAL_START:-15200000}"      # scored once from the best checkpoint
+EVAL_N="${EVAL_N:-1800000}"
+SEALED_START="${SEALED_START:-17000000}"  # [17M, 19M) sealed
+
+# Stop below this much free GPU memory. sglang holds ~93.6 of 97.9 GB when up.
+MIN_FREE_MIB="${MIN_FREE_MIB:-40000}"
+
+# Set before TensorFlow imports. podman does not inherit host exports.
+export TF_DETERMINISTIC_OPS=1
+export TF_CUDNN_DETERMINISTIC=1
+
+STAMP="${STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
+OUT="${OUT:-$HOME/rcnn_threshold/results/gh200_gru_d${D}_p004_b${BATCH}_${STAMP}}"
+RUNS="$OUT/runs"
+CKPT="$OUT/ckpt"
+LOG="$OUT/driver.log"
+mkdir -p "$RUNS" "$CKPT"
+
+PY="${PY:-python3}"
+
+exec > >(tee -a "$LOG") 2>&1
+
+[ -f "$POOL" ] || { echo "[gru] missing pool $POOL. STOP."; exit 1; }
+
+# Check GPU memory - nvidia-smi
+if command -v nvidia-smi >/dev/null 2>&1; then
+  nvidia-smi --query-gpu=name,memory.used,memory.free,memory.total,utilization.gpu \
+             --format=csv
+  nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv \
+    || echo "[gru] no compute processes reported"
+  FREE_MIB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | head -1)
+  if [ "${FREE_MIB:-0}" -lt "$MIN_FREE_MIB" ]; then
+    echo "[gru] ${FREE_MIB} MiB free, need ${MIN_FREE_MIB}. Something still holds the"
+    echo "[gru] card (usually sglang). Stop it, confirm with nvidia-smi, rerun. STOP."
+    exit 1
+  fi
+  echo "[gru] ${FREE_MIB} MiB free: card available"
+else
+  echo "[gru] no nvidia-smi in this container; cannot verify the card. STOP."
+  [ "$MIN_FREE_MIB" -gt 0 ] && exit 1
+fi
+
+# Check TensorFlow version, GPU execution, and the decoding libraries
+"$PY" - <<'PYENV'
+import os
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+import tensorflow as tf
+assert tf.__version__.startswith('2.15'), f'need TF 2.15.x (Keras 2); got {tf.__version__}'
+gpus = tf.config.list_physical_devices('GPU')
+print(f"[gru] TensorFlow {tf.__version__}  GPUs: {gpus}")
+if not gpus:
+    raise SystemExit("[gru] no GPU visible. Check the container was started with "
+                     "--device nvidia.com/gpu=all --security-opt=label=disable. STOP.")
+with tf.device('/GPU:0'):                    # run an op; enumeration alone proves little
+    a = tf.random.normal((1024, 1024))
+    _ = float(tf.reduce_sum(tf.matmul(a, a)))
+print("[gru] GPU matmul ok")
+import pymatching, stim, numpy as np
+print(f"[gru] stim {stim.__version__}  numpy {np.__version__}  pymatching ok")
+PYENV
+
+# Check partition bounds against the pool's real length
+"$PY" - "$POOL" "$NTRAIN" "$VAL_START" "$VAL_N" "$EVAL_START" "$EVAL_N" "$SEALED_START" \
+<<'PYCHECK'
+import sys, numpy as np
+pool, ntr, v0, vn, e0, en, sealed = sys.argv[1], *map(int, sys.argv[2:])
+z = np.load(pool, mmap_mode='r')
+N = z['det_evts'].shape[0]
+v1, e1 = v0 + vn, e0 + en
+print(f"[gru] pool {pool}")
+print(f"[gru] shots={N:,}  det_evts{z['det_evts'].shape}  "
+      f"measurements{z['measurements'].shape}")
+assert N >= sealed, f"pool holds {N:,} shots, sealed block starts at {sealed:,}"
+assert ntr <= v0, f"training prefix [0, {ntr:,}) overlaps validation at {v0:,}"
+assert v1 <= e0, f"validation [{v0:,}, {v1:,}) overlaps evaluation at {e0:,}"
+assert e1 <= sealed, f"evaluation [{e0:,}, {e1:,}) runs into sealed test at {sealed:,}"
+print(f"[gru] train [0, {ntr:,})  val [{v0:,}, {v1:,})  eval [{e0:,}, {e1:,})  "
+      f"sealed [{sealed:,}, {N:,})  all disjoint")
+PYCHECK
+
+# Print the measured sequence layout and parameter count
+"$PY" - "$UNITS" "$D" "$ROUNDS" "$P" <<'PYPARAM'
+import os, sys
+os.environ['CUDA_VISIBLE_DEVICES'] = ''      # shape check, no GPU needed
+units, d, r, p = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
+from StudentModels import build_gru_student, detector_sequence_layout
+n_t, n_pos, _ = detector_sequence_layout(d, r, p)
+m = build_gru_student(d=d, rounds=r, inputs='evts', units=units, hidden=(), p=p)
+print(f"[gru] sequence layout: {n_t} timesteps x {n_pos} positions")
+print(f"[gru] GRU units={units}  params={m.count_params():,}")
+PYPARAM
+
+{
+  echo "experiment   : GRU distance scaling, d=$D r=$ROUNDS p=$P (grace1 GH200)"
+  echo "launched     : $(date -u '+%Y-%m-%dT%H:%M:%SZ')  on $(hostname)"
+  echo "pool         : $POOL"
+  echo "training     : [0, $NTRAIN)"
+  echo "validation   : [$VAL_START, $((VAL_START + VAL_N)))"
+  echo "evaluation   : [$EVAL_START, $((EVAL_START + EVAL_N)))"
+  echo "sealed test  : [$SEALED_START, end of pool), not read"
+  echo "recipe       : units=$UNITS hidden=() inputs=evts alpha=1.0 hard labels"
+  echo "             : batch=$BATCH lr=$LR epochs=$EPOCHS patience=$PATIENCE"
+  echo "seeds        : $SEEDS"
+  echo "d=5 at batch 5,000 (earlier study): p_L=0.008293 +/- 0.000150, MWPM 0.007572"
+  echo "determinism  : TF_DETERMINISTIC_OPS=$TF_DETERMINISTIC_OPS "\
+       "TF_CUDNN_DETERMINISTIC=$TF_CUDNN_DETERMINISTIC"
+  echo "code sha     : $(sha256sum train_student.py | cut -c1-16)  train_student.py"
+  echo "             : $(sha256sum StudentModels.py | cut -c1-16)  StudentModels.py"
+  echo "             : $(sha256sum "$0" | cut -c1-16)  $(basename "$0")"
+} | tee "$OUT/MANIFEST.txt"
+echo
+
+QUIET='cuda_|Unable to register|^Total number|^Number of unique'
+EVAL_CSV="$OUT/eval_1p8M_best_ckpt.csv"
+
+# Score each seed right after it trains, so an interrupted job leaves complete rows.
+for SEED in $SEEDS; do
+  TAG="gru_d${D}_p004_u${UNITS}_hard_seed${SEED}_ntr${NTRAIN}_b${BATCH}"
+
+  if [ -f "$RUNS/$TAG.csv" ] && [ -z "${ALLOW_OVERWRITE:-}" ]; then
+    echo "=== seed $SEED: result row exists, skipping ==="   # results are append-only
+    continue
+  fi
+
+  echo
+  echo "=============== d=$D r=$ROUNDS seed $SEED  ($TAG) ==============="
+  # --tail-diagnostics stays off; it scores the evaluation block every epoch.
+  "$PY" train_student.py \
+    --student gru --inputs evts --hidden --units "$UNITS" \
+    --d "$D" --p "$P" --rounds "$ROUNDS" \
+    --pool "$POOL" \
+    --n-train "$NTRAIN" \
+    --val-start "$VAL_START" --val-n "$VAL_N" \
+    --eval-start "$EVAL_START" --n-test "$EVAL_N" \
+    --alpha 1.0 --temperature 1.0 \
+    --batch-size "$BATCH" --lr "$LR" \
+    --epochs "$EPOCHS" --patience "$PATIENCE" \
+    --seed "$SEED" --require-determinism \
+    --ckpt-dir "$CKPT" --out-dir "$RUNS" --tag "$TAG" --run-tag "$TAG" 2>&1 \
+    | grep --line-buffered -Ev "$QUIET"
+
+  # Ratio of record: MWPM decoded on these shots, paired shot by shot.
+  # train_student.py suppresses its own MWPM column under --eval-start.
+  "$PY" eval_student_on_tail.py \
+    --weights "$CKPT/$TAG.best.weights.h5" \
+    --student gru --inputs evts --hidden --units "$UNITS" \
+    --d "$D" --p "$P" --rounds "$ROUNDS" \
+    --pool "$POOL" --eval-start "$EVAL_START" --n-test "$EVAL_N" \
+    --batch-size "$BATCH" \
+    --dump-per-shot "$OUT/per_shot_${TAG}.npz" \
+    --out-csv "$EVAL_CSV" 2>&1 \
+    | grep --line-buffered -Ev "$QUIET"
+done
+
+echo
+echo "[gru] done  d=$D r=$ROUNDS  seeds: $SEEDS"
+echo "[gru]   training rows  -> $RUNS/"
+echo "[gru]   eval rows      -> $EVAL_CSV"
+echo "[gru]   per-shot dumps -> $OUT/per_shot_*.npz"
+echo "[gru]   checkpoints    -> $CKPT/"
