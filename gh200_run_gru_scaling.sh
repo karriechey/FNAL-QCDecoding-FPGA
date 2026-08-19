@@ -5,8 +5,9 @@
 # GRU distance scaling at p=0.004 on grace1 (GH200). Hard labels, batch 10,000, seeds 0/1/2.
 # Runs inside the qdec:tf215 podman container.
 #
-#     D=7 ROUNDS=7 bash gh200_run_gru_scaling.sh    # new distance-scaling point
-#     D=5 ROUNDS=5 bash gh200_run_gru_scaling.sh    # d=5 rerun at batch 10,000
+#     D=7 ROUNDS=7 bash gh200_run_gru_scaling.sh              # new distance-scaling point
+#     D=5 ROUNDS=5 bash gh200_run_gru_scaling.sh              # d=5 rerun at batch 10,000
+#     D=7 ROUNDS=7 PARALLEL=1 bash gh200_run_gru_scaling.sh   # all seeds at once, one GPU
 #
 # units=140 at both distances. Params differ because the input width does:
 # 69,441 at d=5 (6 timesteps x 24 positions), 79,521 at d=7 (8 x 48).
@@ -33,19 +34,23 @@ EVAL_START="${EVAL_START:-15200000}"      # scored once from the best checkpoint
 EVAL_N="${EVAL_N:-1800000}"
 SEALED_START="${SEALED_START:-17000000}"  # [17M, 19M) sealed
 
+# PARALLEL=1 runs every seed at once on the one GPU. Each process holds ~45 GB host RAM at
+# 10M shots, so three concurrent seeds need ~135 GB of the box's 572 GB.
+PARALLEL="${PARALLEL:-0}"
+
 # Stop below this much free GPU memory. sglang holds ~93.6 of 97.9 GB when up.
 MIN_FREE_MIB="${MIN_FREE_MIB:-40000}"
 
 # Set before TensorFlow imports. podman does not inherit host exports.
 export TF_DETERMINISTIC_OPS=1
 export TF_CUDNN_DETERMINISTIC=1
+# Allocate GPU memory on demand; the default reserves nearly the whole card per process.
+export TF_FORCE_GPU_ALLOW_GROWTH=true
 
 STAMP="${STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 OUT="${OUT:-$HOME/rcnn_threshold/results/gh200_gru_d${D}_p004_b${BATCH}_${STAMP}}"
-RUNS="$OUT/runs"
-CKPT="$OUT/ckpt"
-LOG="$OUT/driver.log"
-mkdir -p "$RUNS" "$CKPT"
+LOG="$OUT/driver.log"        # preflight and scheduling; per-seed logs sit in $OUT/seed<N>/
+mkdir -p "$OUT"
 
 PY="${PY:-python3}"
 
@@ -142,50 +147,82 @@ PYPARAM
 echo
 
 QUIET='cuda_|Unable to register|^Total number|^Number of unique'
-EVAL_CSV="$OUT/eval_1p8M_best_ckpt.csv"
 
-# Score each seed right after it trains, so an interrupted job leaves complete rows.
-for SEED in $SEEDS; do
-  TAG="gru_d${D}_p004_u${UNITS}_hard_seed${SEED}_ntr${NTRAIN}_b${BATCH}"
+# Train one seed, then score it on the evaluation block. Each seed owns its directory in
+# both modes, so sequential and concurrent runs produce the same layout.
+run_seed () {
+  local SEED="$1"
+  local TAG="gru_d${D}_p004_u${UNITS}_hard_seed${SEED}_ntr${NTRAIN}_b${BATCH}"
+  local SEEDDIR="$OUT/seed${SEED}"
+  local SRUNS="$SEEDDIR/runs"
+  local SCKPT="$SEEDDIR/ckpt"
+  local SLOG="$SEEDDIR/run.log"
+  mkdir -p "$SRUNS" "$SCKPT"
 
-  if [ -f "$RUNS/$TAG.csv" ] && [ -z "${ALLOW_OVERWRITE:-}" ]; then
-    echo "=== seed $SEED: result row exists, skipping ==="   # results are append-only
-    continue
+  if [ -f "$SRUNS/$TAG.csv" ] && [ -z "${ALLOW_OVERWRITE:-}" ]; then
+    echo "[gru] seed $SEED: result row exists, skipping"   # results are append-only
+    return 0
   fi
 
-  echo
-  echo "=============== d=$D r=$ROUNDS seed $SEED  ($TAG) ==============="
-  # --tail-diagnostics stays off; it scores the evaluation block every epoch.
-  "$PY" train_student.py \
-    --student gru --inputs evts --hidden --units "$UNITS" \
-    --d "$D" --p "$P" --rounds "$ROUNDS" \
-    --pool "$POOL" \
-    --n-train "$NTRAIN" \
-    --val-start "$VAL_START" --val-n "$VAL_N" \
-    --eval-start "$EVAL_START" --n-test "$EVAL_N" \
-    --alpha 1.0 --temperature 1.0 \
-    --batch-size "$BATCH" --lr "$LR" \
-    --epochs "$EPOCHS" --patience "$PATIENCE" \
-    --seed "$SEED" --require-determinism \
-    --ckpt-dir "$CKPT" --out-dir "$RUNS" --tag "$TAG" --run-tag "$TAG" 2>&1 \
-    | grep --line-buffered -Ev "$QUIET"
+  {
+    echo "=============== d=$D r=$ROUNDS seed $SEED  ($TAG) ==============="
+    date -u '+%Y-%m-%dT%H:%M:%SZ start'
+    # --tail-diagnostics stays off; it scores the evaluation block every epoch.
+    "$PY" train_student.py \
+      --student gru --inputs evts --hidden --units "$UNITS" \
+      --d "$D" --p "$P" --rounds "$ROUNDS" \
+      --pool "$POOL" \
+      --n-train "$NTRAIN" \
+      --val-start "$VAL_START" --val-n "$VAL_N" \
+      --eval-start "$EVAL_START" --n-test "$EVAL_N" \
+      --alpha 1.0 --temperature 1.0 \
+      --batch-size "$BATCH" --lr "$LR" \
+      --epochs "$EPOCHS" --patience "$PATIENCE" \
+      --seed "$SEED" --require-determinism \
+      --ckpt-dir "$SCKPT" --out-dir "$SRUNS" --tag "$TAG" --run-tag "$TAG"
 
-  # Ratio of record: MWPM decoded on these shots, paired shot by shot.
-  # train_student.py suppresses its own MWPM column under --eval-start.
-  "$PY" eval_student_on_tail.py \
-    --weights "$CKPT/$TAG.best.weights.h5" \
-    --student gru --inputs evts --hidden --units "$UNITS" \
-    --d "$D" --p "$P" --rounds "$ROUNDS" \
-    --pool "$POOL" --eval-start "$EVAL_START" --n-test "$EVAL_N" \
-    --batch-size "$BATCH" \
-    --dump-per-shot "$OUT/per_shot_${TAG}.npz" \
-    --out-csv "$EVAL_CSV" 2>&1 \
-    | grep --line-buffered -Ev "$QUIET"
-done
+    # Ratio of record: MWPM decoded on these shots, paired shot by shot.
+    # train_student.py suppresses its own MWPM column under --eval-start.
+    "$PY" eval_student_on_tail.py \
+      --weights "$SCKPT/$TAG.best.weights.h5" \
+      --student gru --inputs evts --hidden --units "$UNITS" \
+      --d "$D" --p "$P" --rounds "$ROUNDS" \
+      --pool "$POOL" --eval-start "$EVAL_START" --n-test "$EVAL_N" \
+      --batch-size "$BATCH" \
+      --dump-per-shot "$SEEDDIR/per_shot_${TAG}.npz" \
+      --out-csv "$SEEDDIR/eval_best_ckpt.csv"
+    date -u '+%Y-%m-%dT%H:%M:%SZ end'
+  } 2>&1 | grep --line-buffered -Ev "$QUIET" > "$SLOG"
+}
+
+T0=$(date +%s)
+if [ "$PARALLEL" = "1" ]; then
+  echo "[gru] launching seeds concurrently: $SEEDS"
+  declare -A PIDS
+  for SEED in $SEEDS; do
+    run_seed "$SEED" &
+    PIDS[$SEED]=$!
+    echo "[gru]   seed $SEED -> pid ${PIDS[$SEED]}  log $OUT/seed${SEED}/run.log"
+  done
+  rc=0
+  for SEED in $SEEDS; do
+    if wait "${PIDS[$SEED]}"; then
+      echo "[gru] seed $SEED finished"
+    else
+      echo "[gru] seed $SEED FAILED, see $OUT/seed${SEED}/run.log"; rc=1
+    fi
+  done
+else
+  for SEED in $SEEDS; do
+    echo "[gru] seed $SEED -> log $OUT/seed${SEED}/run.log"
+    run_seed "$SEED" || { echo "[gru] seed $SEED failed"; exit 1; }
+  done
+  rc=0
+fi
+WALL=$(( $(date +%s) - T0 ))
 
 echo
-echo "[gru] done  d=$D r=$ROUNDS  seeds: $SEEDS"
-echo "[gru]   training rows  -> $RUNS/"
-echo "[gru]   eval rows      -> $EVAL_CSV"
-echo "[gru]   per-shot dumps -> $OUT/per_shot_*.npz"
-echo "[gru]   checkpoints    -> $CKPT/"
+echo "[gru] done  d=$D r=$ROUNDS  seeds: $SEEDS  parallel=$PARALLEL  wall ${WALL}s"
+echo "[gru]   per-seed output -> $OUT/seed<N>/{runs,ckpt,run.log,eval_best_ckpt.csv}"
+grep -h '' "$OUT"/seed*/eval_best_ckpt.csv 2>/dev/null | sort -u | head -20
+exit $rc
