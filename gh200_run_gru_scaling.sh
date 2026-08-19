@@ -52,6 +52,17 @@ OUT="${OUT:-$HOME/rcnn_threshold/results/gh200_gru_d${D}_p004_b${BATCH}_${STAMP}
 LOG="$OUT/driver.log"        # preflight and scheduling; per-seed logs sit in $OUT/seed<N>/
 mkdir -p "$OUT"
 
+# Inside a container, $HOME is /root and the default OUT lands on the container's own
+# filesystem, which podman --rm deletes on exit. Require OUT on a bind mount, which has a
+# different device number than /.
+if [ -f /run/.containerenv ] || [ -f /.dockerenv ]; then
+  if [ "$(stat -c %d "$OUT")" = "$(stat -c %d /)" ] && [ -z "${ALLOW_EPHEMERAL_OUT:-}" ]; then
+    echo "[gru] OUT=$OUT is on the container filesystem and dies with the container."
+    echo "[gru] Pass OUT=<path under a -v bind mount>, e.g. /rt/results/<name>. STOP."
+    exit 1
+  fi
+fi
+
 PY="${PY:-python3}"
 
 exec > >(tee -a "$LOG") 2>&1
