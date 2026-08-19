@@ -304,6 +304,22 @@ def load_teacher_cache(path, pool_path, lo, hi, pool_npz=None):
             tc['flips'][off:off + n].astype(np.int8))
 
 
+
+def cap_gpu_memory(tf, mib):
+    """Cap this process's GPU memory so several trainings share one card predictably.
+
+    TensorFlow's allocator grows into whatever is free and does not release it, so an
+    unconstrained process on an idle card parks far more than it needs and a later process
+    fails its first allocation. A logical-device limit fixes each process's share.
+    Must run before any tensor is placed on the device.
+    """
+    gpus = tf.config.list_physical_devices('GPU')
+    for g in gpus:
+        tf.config.set_logical_device_configuration(
+            g, [tf.config.LogicalDeviceConfiguration(memory_limit=mib)])
+    print(f"[gpu] per-process limit {mib} MiB on {len(gpus)} device(s)", flush=True)
+
+
 def run():
     ap = argparse.ArgumentParser()
     # --- problem config (must match the teacher's) ---
@@ -416,6 +432,9 @@ def run():
                          'never land in the same directory')
     ap.add_argument('--tag', default=None, help='override the auto-generated output tag')
     ap.add_argument('--cpu', action='store_true')
+    ap.add_argument('--gpu-mem-mib', type=int, default=None,
+                    help='cap this process to N MiB of GPU memory, so several trainings '
+                         'share one card without the first one parking all of it')
     args = ap.parse_args()
 
     # Name the architecture in every log line from here on: '[mlp]' or '[gru]'.
@@ -451,6 +470,8 @@ def run():
         f'need TF 2.15.x (Keras 2); got TF {tf.__version__}. Activate the pinned env.')
     if args.cpu:
         tf.config.set_visible_devices([], 'GPU')
+    elif args.gpu_mem_mib:
+        cap_gpu_memory(tf, args.gpu_mem_mib)
     print(f"{LOG} TF {tf.__version__}  GPUs: {tf.config.list_physical_devices('GPU')}",
           flush=True)
 

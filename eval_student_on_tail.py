@@ -62,6 +62,8 @@ def run():
     ap.add_argument('--dump-per-shot', default=None,
                     help='npz of per-shot arrays, for failure-case analysis')
     ap.add_argument('--cpu', action='store_true')
+    ap.add_argument('--gpu-mem-mib', type=int, default=None,
+                    help='cap this process to N MiB of GPU memory')
     args = ap.parse_args()
 
     os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
@@ -70,6 +72,9 @@ def run():
         f'need TF 2.15.x (Keras 2); got TF {tf.__version__}.')
     if args.cpu:
         tf.config.set_visible_devices([], 'GPU')
+    elif args.gpu_mem_mib:
+        from train_student import cap_gpu_memory
+        cap_gpu_memory(tf, args.gpu_mem_mib)
 
     from types_cfg import get_types
     from circuit_partition import split_measurements

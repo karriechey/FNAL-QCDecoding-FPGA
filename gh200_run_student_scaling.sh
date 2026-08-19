@@ -53,6 +53,12 @@ PARALLEL="${PARALLEL:-0}"
 # Stop below this much free GPU memory. sglang holds ~93.6 of 97.9 GB when up.
 MIN_FREE_MIB="${MIN_FREE_MIB:-40000}"
 
+# Per-process GPU memory cap, MiB. Unset means TensorFlow grows into whatever is free and
+# keeps it: on the 97,871 MiB card a d=7 process settles at ~17,000 MiB although it needs
+# 1-2 GB, and the sixth concurrent process dies on its first allocation. Set this when
+# running more than four trainings at once.
+GPU_MEM_MIB="${GPU_MEM_MIB:-}"
+
 # Set before TensorFlow imports. podman does not inherit host exports.
 export TF_DETERMINISTIC_OPS=1
 export TF_CUDNN_DETERMINISTIC=1
@@ -199,6 +205,7 @@ printf -v GEOMETRY '%s\n%s\n%s\n%s' \
   echo "$GEOMETRY"
   echo "recipe       : $STUDENT units=$UNITS hidden=($HIDDEN) inputs=evts alpha=1.0 hard labels"
   echo "             : batch=$BATCH lr=$LR epochs=$EPOCHS early_stop=$EARLY_STOP"
+  echo "gpu cap      : ${GPU_MEM_MIB:-none} MiB per process"
   echo "selection    : min val_loss checkpoint, scored once on the evaluation block"
   if [ "$STUDENT" = "mlp" ]; then
     echo "reading      : size-matched feed-forward comparison against the GRU at this"
@@ -222,6 +229,10 @@ if [ "$STUDENT" = "gru" ]; then
   ARCH=(--student gru --inputs evts --hidden --units "$UNITS")
 else
   ARCH=(--student mlp --inputs evts --hidden $HIDDEN)
+fi
+
+if [ -n "$GPU_MEM_MIB" ]; then
+  ARCH+=(--gpu-mem-mib "$GPU_MEM_MIB")
 fi
 
 if [ "$EARLY_STOP" = "1" ]; then
