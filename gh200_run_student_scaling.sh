@@ -2,15 +2,19 @@
 # Created: 2026-08-19
 # Last updated: 2026-08-19
 #
-# GRU distance scaling at p=0.004 on grace1 (GH200). Hard labels, batch 10,000, seeds 0/1/2.
+# Student distance scaling at p=0.004 on grace1 (GH200). Hard labels, batch 10,000,
+# seeds 0/1/2, fixed epoch budget with validation-based checkpoint selection.
 # Runs inside the qdec:tf215 podman container.
 #
-#     D=7 ROUNDS=7 bash gh200_run_gru_scaling.sh              # new distance-scaling point
-#     D=5 ROUNDS=5 bash gh200_run_gru_scaling.sh              # d=5 rerun at batch 10,000
-#     D=7 ROUNDS=7 PARALLEL=1 bash gh200_run_gru_scaling.sh   # all seeds at once, one GPU
+#     D=5 ROUNDS=5 STUDENT=gru UNITS=140       bash gh200_run_student_scaling.sh
+#     D=7 ROUNDS=7 STUDENT=gru UNITS=140       bash gh200_run_student_scaling.sh
+#     D=7 ROUNDS=7 STUDENT=mlp HIDDEN="160 160" bash gh200_run_student_scaling.sh
+#     PARALLEL=1 runs all seeds at once on the one GPU.
 #
-# units=140 at both distances. Params differ because the input width does:
-# 69,441 at d=5 (6 timesteps x 24 positions), 79,521 at d=7 (8 x 48).
+# Widths are matched within a distance, so architecture is the only difference at that
+# distance. Across distances the layer is held and the count grows with input width:
+#   d=5 r=5   GRU units=140 -> 69,441    MLP hidden=(209,209) -> 69,389
+#   d=7 r=7   GRU units=140 -> 79,521    MLP hidden=(160,160) -> 79,841
 set -euo pipefail
 
 D="${D:-7}"
@@ -19,10 +23,18 @@ P="${P:-0.004}"
 SEEDS="${SEEDS:-0 1 2}"
 NTRAIN="${NTRAIN:-10000000}"
 BATCH="${BATCH:-10000}"
-EPOCHS="${EPOCHS:-50}"
-PATIENCE="${PATIENCE:-5}"
+EPOCHS="${EPOCHS:-200}"
 LR="${LR:-0.003}"          # constant; passing --lr detaches the teacher LR schedule
-UNITS="${UNITS:-140}"
+
+STUDENT="${STUDENT:-gru}"  # gru or mlp
+UNITS="${UNITS:-140}"      # GRU state width
+HIDDEN="${HIDDEN:-}"       # MLP layer widths, space separated, e.g. "160 160"
+
+# Early stopping off by default. The full epoch budget runs and the reported model is the
+# minimum-val_loss checkpoint, so patience is not a tunable that moves the result.
+# EARLY_STOP=1 restores it with PATIENCE.
+EARLY_STOP="${EARLY_STOP:-0}"
+PATIENCE="${PATIENCE:-5}"
 
 # Pools sit in $HOME on grace1; pass POOL explicitly from the podman mount.
 POOL="${POOL:-$HOME/pools_d${D}_p004_19M/data_d${D}_p0.004_r${ROUNDS}_FORMAL.npz}"
@@ -48,7 +60,7 @@ export TF_CUDNN_DETERMINISTIC=1
 export TF_FORCE_GPU_ALLOW_GROWTH=true
 
 STAMP="${STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
-OUT="${OUT:-$HOME/rcnn_threshold/results/gh200_gru_d${D}_p004_b${BATCH}_${STAMP}}"
+OUT="${OUT:-$HOME/rcnn_threshold/results/gh200_${STUDENT}_d${D}_p004_b${BATCH}_${STAMP}}"
 LOG="$OUT/driver.log"        # preflight and scheduling; per-seed logs sit in $OUT/seed<N>/
 mkdir -p "$OUT"
 
@@ -66,6 +78,12 @@ fi
 PY="${PY:-python3}"
 
 exec > >(tee -a "$LOG") 2>&1
+
+case "$STUDENT" in
+  gru) ;;
+  mlp) [ -n "$HIDDEN" ] || { echo "[gru] STUDENT=mlp needs HIDDEN, e.g. \"160 160\". STOP."; exit 1; } ;;
+  *)   echo "[gru] STUDENT=$STUDENT; expected gru or mlp. STOP."; exit 1 ;;
+esac
 
 [ -f "$POOL" ] || { echo "[gru] missing pool $POOL. STOP."; exit 1; }
 
@@ -125,30 +143,69 @@ print(f"[gru] train [0, {ntr:,})  val [{v0:,}, {v1:,})  eval [{e0:,}, {e1:,})  "
       f"sealed [{sealed:,}, {N:,})  all disjoint")
 PYCHECK
 
-# Print the measured sequence layout and parameter count
-"$PY" - "$UNITS" "$D" "$ROUNDS" "$P" <<'PYPARAM'
+# Pool provenance. The fingerprint written at generation carries the generation seed and
+# the flips SHA; mismatched geometry means this is a different experiment.
+"$PY" - "$POOL" "$D" "$ROUNDS" "$P" "$OUT/pool_provenance.json" <<'PYPROV'
+import json, os, sys
+pool, d, r = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+p, out = float(sys.argv[4]), sys.argv[5]
+fp = pool.replace('.npz', '.fingerprint.json')
+if not os.path.exists(fp):
+    raise SystemExit(f"[gru] no fingerprint beside {pool}; provenance is required. STOP.")
+m = json.load(open(fp))
+if (m['d'], m['rounds'], float(m['p'])) != (d, r, p):
+    raise SystemExit(f"[gru] fingerprint says d={m['d']} r={m['rounds']} p={m['p']}, "
+                     f"this run asks for d={d} r={r} p={p}. STOP.")
+print(f"[gru] pool gen_seed={m['gen_seed']}  flips_sha={m['flips_sha256'][:16]}  "
+      f"n_total={m['n_total']:,}")
+json.dump(m, open(out, 'w'), indent=2)
+PYPROV
+
+# Print the measured layout and parameter count
+"$PY" - "$STUDENT" "$UNITS" "$D" "$ROUNDS" "$P" $HIDDEN <<'PYPARAM'
 import os, sys
 os.environ['CUDA_VISIBLE_DEVICES'] = ''      # shape check, no GPU needed
-units, d, r, p = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
-from StudentModels import build_gru_student, detector_sequence_layout
-n_t, n_pos, _ = detector_sequence_layout(d, r, p)
-m = build_gru_student(d=d, rounds=r, inputs='evts', units=units, hidden=(), p=p)
-print(f"[gru] sequence layout: {n_t} timesteps x {n_pos} positions")
-print(f"[gru] GRU units={units}  params={m.count_params():,}")
+student, units = sys.argv[1], int(sys.argv[2])
+d, r, p = int(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5])
+hidden = tuple(int(h) for h in sys.argv[6:])
+from StudentModels import build_student, detector_sequence_layout, input_width
+if student == 'gru':
+    n_t, n_pos, _ = detector_sequence_layout(d, r, p)
+    print(f"[gru] sequence layout: {n_t} timesteps x {n_pos} positions")
+else:
+    print(f"[gru] flat input width: {input_width(d, r, 'evts')}")
+m = build_student(student, d=d, rounds=r, inputs='evts', hidden=hidden, units=units)
+print(f"[gru] {student} units={units} hidden={hidden}  params={m.count_params():,}")
 PYPARAM
 
+PROV=$("$PY" -c "import json;m=json.load(open('$OUT/pool_provenance.json'));\
+print(f\"gen_seed={m['gen_seed']} flips_sha={m['flips_sha256']} n_total={m['n_total']}\")")
+POOL_N=$("$PY" -c "import json;print(json.load(open('$OUT/pool_provenance.json'))['n_total'])")
+
+# The four blocks as literal shot indices, printed before every run and again per seed.
+VAL_END=$((VAL_START + VAL_N))
+EVAL_END=$((EVAL_START + EVAL_N))
+printf -v GEOMETRY '%s\n%s\n%s\n%s' \
+  "train        : [0, $NTRAIN)" \
+  "validation   : [$VAL_START, $VAL_END)" \
+  "evaluation   : [$EVAL_START, $EVAL_END)" \
+  "sealed test  : [$SEALED_START, $POOL_N)   not read"
+
 {
-  echo "experiment   : GRU distance scaling, d=$D r=$ROUNDS p=$P (grace1 GH200)"
+  echo "experiment   : $STUDENT distance scaling, d=$D r=$ROUNDS p=$P (grace1 GH200)"
   echo "launched     : $(date -u '+%Y-%m-%dT%H:%M:%SZ')  on $(hostname)"
   echo "pool         : $POOL"
-  echo "training     : [0, $NTRAIN)"
-  echo "validation   : [$VAL_START, $((VAL_START + VAL_N)))"
-  echo "evaluation   : [$EVAL_START, $((EVAL_START + EVAL_N)))"
-  echo "sealed test  : [$SEALED_START, end of pool), not read"
-  echo "recipe       : units=$UNITS hidden=() inputs=evts alpha=1.0 hard labels"
-  echo "             : batch=$BATCH lr=$LR epochs=$EPOCHS patience=$PATIENCE"
+  echo "pool prov    : $PROV"
+  echo "$GEOMETRY"
+  echo "recipe       : $STUDENT units=$UNITS hidden=($HIDDEN) inputs=evts alpha=1.0 hard labels"
+  echo "             : batch=$BATCH lr=$LR epochs=$EPOCHS early_stop=$EARLY_STOP"
+  echo "selection    : min val_loss checkpoint, scored once on the evaluation block"
+  if [ "$STUDENT" = "mlp" ]; then
+    echo "reading      : size-matched feed-forward comparison against the GRU at this"
+    echo "             : distance. A gap measures that the architectures degrade"
+    echo "             : differently with distance; the cause is a separate question."
+  fi
   echo "seeds        : $SEEDS"
-  echo "d=5 at batch 5,000 (earlier study): p_L=0.008293 +/- 0.000150, MWPM 0.007572"
   echo "determinism  : TF_DETERMINISTIC_OPS=$TF_DETERMINISTIC_OPS "\
        "TF_CUDNN_DETERMINISTIC=$TF_CUDNN_DETERMINISTIC"
   echo "code sha     : $(sha256sum train_student.py | cut -c1-16)  train_student.py"
@@ -159,11 +216,26 @@ echo
 
 QUIET='cuda_|Unable to register|^Total number|^Number of unique'
 
+# Architecture flags, identical between the training call and the scoring call so the
+# model rebuilt for scoring is the one that was trained.
+if [ "$STUDENT" = "gru" ]; then
+  ARCH=(--student gru --inputs evts --hidden --units "$UNITS")
+else
+  ARCH=(--student mlp --inputs evts --hidden $HIDDEN)
+fi
+
+if [ "$EARLY_STOP" = "1" ]; then
+  STOPPING=(--patience "$PATIENCE")
+else
+  STOPPING=(--no-early-stopping)
+fi
+
 # Train one seed, then score it on the evaluation block. Each seed owns its directory in
 # both modes, so sequential and concurrent runs produce the same layout.
 run_seed () {
   local SEED="$1"
-  local TAG="gru_d${D}_p004_u${UNITS}_hard_seed${SEED}_ntr${NTRAIN}_b${BATCH}"
+  local SIZE; [ "$STUDENT" = "gru" ] && SIZE="u${UNITS}" || SIZE="h$(echo $HIDDEN | tr ' ' '-')"
+  local TAG="${STUDENT}_d${D}_p004_${SIZE}_hard_seed${SEED}_ntr${NTRAIN}_b${BATCH}"
   local SEEDDIR="$OUT/seed${SEED}"
   local SRUNS="$SEEDDIR/runs"
   local SCKPT="$SEEDDIR/ckpt"
@@ -177,10 +249,12 @@ run_seed () {
 
   {
     echo "=============== d=$D r=$ROUNDS seed $SEED  ($TAG) ==============="
+    echo "$GEOMETRY"
+    echo "pool         : $POOL"
+    echo "pool prov    : $PROV"
     date -u '+%Y-%m-%dT%H:%M:%SZ start'
     # --tail-diagnostics stays off; it scores the evaluation block every epoch.
-    "$PY" train_student.py \
-      --student gru --inputs evts --hidden --units "$UNITS" \
+    "$PY" train_student.py "${ARCH[@]}" "${STOPPING[@]}" \
       --d "$D" --p "$P" --rounds "$ROUNDS" \
       --pool "$POOL" \
       --n-train "$NTRAIN" \
@@ -188,15 +262,15 @@ run_seed () {
       --eval-start "$EVAL_START" --n-test "$EVAL_N" \
       --alpha 1.0 --temperature 1.0 \
       --batch-size "$BATCH" --lr "$LR" \
-      --epochs "$EPOCHS" --patience "$PATIENCE" \
+      --epochs "$EPOCHS" \
       --seed "$SEED" --require-determinism \
       --ckpt-dir "$SCKPT" --out-dir "$SRUNS" --tag "$TAG" --run-tag "$TAG"
 
     # Ratio of record: MWPM decoded on these shots, paired shot by shot.
     # train_student.py suppresses its own MWPM column under --eval-start.
-    "$PY" eval_student_on_tail.py \
+    # Scores the min-val_loss checkpoint, never the final-epoch weights.
+    "$PY" eval_student_on_tail.py "${ARCH[@]}" \
       --weights "$SCKPT/$TAG.best.weights.h5" \
-      --student gru --inputs evts --hidden --units "$UNITS" \
       --d "$D" --p "$P" --rounds "$ROUNDS" \
       --pool "$POOL" --eval-start "$EVAL_START" --n-test "$EVAL_N" \
       --batch-size "$BATCH" \
