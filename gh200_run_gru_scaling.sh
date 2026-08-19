@@ -83,8 +83,8 @@ if not gpus:
     raise SystemExit("[gru] no GPU visible. Check the container was started with "
                      "--device nvidia.com/gpu=all --security-opt=label=disable. STOP.")
 with tf.device('/GPU:0'):                    # run an op; enumeration alone proves little
-    a = tf.random.normal((1024, 1024))
-    _ = float(tf.reduce_sum(tf.matmul(a, a)))
+    a = tf.fill((1024, 1024), 0.001)         # deterministic input; random ops need a seed
+    assert float(tf.reduce_sum(tf.matmul(a, a))) > 0.0
 print("[gru] GPU matmul ok")
 import pymatching, stim, numpy as np
 print(f"[gru] stim {stim.__version__}  numpy {np.__version__}  pymatching ok")
