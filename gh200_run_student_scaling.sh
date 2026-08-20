@@ -30,6 +30,13 @@ STUDENT="${STUDENT:-gru}"  # gru or mlp
 UNITS="${UNITS:-140}"      # GRU state width
 HIDDEN="${HIDDEN:-}"       # MLP layer widths, space separated, e.g. "160 160"
 
+# Quantization-aware training. Empty = float32 layers, the anchor every quantized run is
+# measured against. W_BITS swaps in QDense/QGRU with quantized_bits(B, 1, alpha=1);
+# A_BITS additionally quantizes activations. Weights-only (A_BITS empty) matches the
+# teacher sweep's first stage.
+W_BITS="${W_BITS:-}"
+A_BITS="${A_BITS:-}"
+
 # Early stopping off by default. The full epoch budget runs and the reported model is the
 # minimum-val_loss checkpoint, so patience is not a tunable that moves the result.
 # EARLY_STOP=1 restores it with PATIENCE.
@@ -206,6 +213,7 @@ printf -v GEOMETRY '%s\n%s\n%s\n%s' \
   echo "recipe       : $STUDENT units=$UNITS hidden=($HIDDEN) inputs=evts alpha=1.0 hard labels"
   echo "             : batch=$BATCH lr=$LR epochs=$EPOCHS early_stop=$EARLY_STOP"
   echo "gpu cap      : ${GPU_MEM_MIB:-none} MiB per process"
+  echo "quantization : weights=${W_BITS:-float32} activations=${A_BITS:-float32}"
   echo "selection    : min val_loss checkpoint, scored once on the evaluation block"
   if [ "$STUDENT" = "mlp" ]; then
     echo "reading      : size-matched feed-forward comparison against the GRU at this"
@@ -235,6 +243,9 @@ if [ -n "$GPU_MEM_MIB" ]; then
   ARCH+=(--gpu-mem-mib "$GPU_MEM_MIB")
 fi
 
+if [ -n "$W_BITS" ]; then ARCH+=(--weight-bits "$W_BITS"); fi
+if [ -n "$A_BITS" ]; then ARCH+=(--act-bits "$A_BITS"); fi
+
 if [ "$EARLY_STOP" = "1" ]; then
   STOPPING=(--patience "$PATIENCE")
 else
@@ -246,7 +257,10 @@ fi
 run_seed () {
   local SEED="$1"
   local SIZE; [ "$STUDENT" = "gru" ] && SIZE="u${UNITS}" || SIZE="h$(echo $HIDDEN | tr ' ' '-')"
-  local TAG="${STUDENT}_d${D}_p004_${SIZE}_hard_seed${SEED}_ntr${NTRAIN}_b${BATCH}"
+  # Float runs keep their original tag, so finished results still match the skip guard.
+  local QTAG=""
+  [ -n "$W_BITS$A_BITS" ] && QTAG="_w${W_BITS:-f32}_a${A_BITS:-f32}"
+  local TAG="${STUDENT}_d${D}_p004_${SIZE}${QTAG}_hard_seed${SEED}_ntr${NTRAIN}_b${BATCH}"
   local SEEDDIR="$OUT/seed${SEED}"
   local SRUNS="$SEEDDIR/runs"
   local SCKPT="$SEEDDIR/ckpt"
