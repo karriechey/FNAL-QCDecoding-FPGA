@@ -267,8 +267,8 @@ run_seed () {
   local SLOG="$SEEDDIR/run.log"
   mkdir -p "$SRUNS" "$SCKPT"
 
-  if [ -f "$SRUNS/$TAG.csv" ] && [ -z "${ALLOW_OVERWRITE:-}" ]; then
-    echo "[gru] seed $SEED: result row exists, skipping"   # results are append-only
+  if [ -f "$SEEDDIR/COMPLETE" ] && [ -z "${ALLOW_OVERWRITE:-}" ]; then
+    echo "[gru] seed $SEED: COMPLETE marker present, skipping"   # results are append-only
     return 0
   fi
 
@@ -301,6 +301,39 @@ run_seed () {
       --batch-size "$BATCH" \
       --dump-per-shot "$SEEDDIR/per_shot_${TAG}.npz" \
       --out-csv "$SEEDDIR/eval_best_ckpt.csv"
+    # A seed counts as complete only when all of it landed: the full epoch budget in the
+    # history, the best checkpoint, its own row in the eval CSV, and the per-shot dump.
+    # Downstream readers key on this file, so a truncated run can never steer a decision.
+    "$PY" - "$SRUNS" "$SCKPT" "$SEEDDIR" "$TAG" "$EPOCHS" <<'PYDONE'
+import csv, json, os, sys
+runs, ckpt, seeddir, tag, epochs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
+problems = []
+hist = os.path.join(runs, tag + '.history.json')
+if not os.path.exists(hist):
+    problems.append('history missing')
+else:
+    h = json.load(open(hist))
+    n = len(h.get('val_loss', []))
+    if n != epochs:
+        problems.append(f'history has {n} epochs, expected {epochs}')
+best = os.path.join(ckpt, tag + '.best.weights.h5')
+if not os.path.exists(best):
+    problems.append('best checkpoint missing')
+ev = os.path.join(seeddir, 'eval_best_ckpt.csv')
+want = tag + '.best.weights.h5'
+if not os.path.exists(ev):
+    problems.append('eval csv missing')
+elif not any(r['weights'] == want for r in csv.DictReader(open(ev))):
+    problems.append(f'no eval row for {want}')
+dump = os.path.join(seeddir, f'per_shot_{tag}.npz')
+if not os.path.exists(dump):
+    problems.append('per-shot dump missing')
+if problems:
+    print('[complete] NOT complete: ' + '; '.join(problems))
+    sys.exit(1)
+open(os.path.join(seeddir, 'COMPLETE'), 'w').write(tag + chr(10))
+print('[complete] all artifacts present -> COMPLETE')
+PYDONE
     date -u '+%Y-%m-%dT%H:%M:%SZ end'
   } 2>&1 | grep --line-buffered -Ev "$QUIET" > "$SLOG"
 }
@@ -330,6 +363,18 @@ else
   rc=0
 fi
 WALL=$(( $(date +%s) - T0 ))
+
+ALL_DONE=1
+for SEED in $SEEDS; do
+  [ -f "$OUT/seed${SEED}/COMPLETE" ] || ALL_DONE=0
+done
+if [ "$ALL_DONE" = "1" ]; then
+  echo "$SEEDS" > "$OUT/COMPLETE"
+  echo "[gru] every requested seed completed -> $OUT/COMPLETE"
+else
+  echo "[gru] some seeds incomplete; no run-level COMPLETE written"
+  rc=1
+fi
 
 echo
 echo "[gru] done  d=$D r=$ROUNDS  seeds: $SEEDS  parallel=$PARALLEL  wall ${WALL}s"

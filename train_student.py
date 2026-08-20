@@ -305,6 +305,18 @@ def load_teacher_cache(path, pool_path, lo, hi, pool_npz=None):
 
 
 
+
+def _primary_gen_seed(pool_path):
+    """Generation seed of a pool, from its fingerprint, or None when absent."""
+    fp = pool_path.replace('.npz', '.fingerprint.json')
+    if not os.path.exists(fp):
+        return None
+    try:
+        return json.load(open(fp)).get('gen_seed')
+    except (ValueError, OSError):
+        return None
+
+
 def cap_gpu_memory(tf, mib):
     """Cap this process's GPU memory so several trainings share one card predictably.
 
@@ -421,6 +433,14 @@ def run():
     # --- io ---
     ap.add_argument('--data-dir', default=os.path.expanduser('~/rcnn_threshold/pools'))
     ap.add_argument('--pool', default=None, help='explicit training pool npz')
+    ap.add_argument('--extra-train-pool', default=None,
+                    help='second pool, TRAINING ONLY, appended to the training prefix. Its '
+                         'shots come from an independent generation seed, so they cannot '
+                         'overlap the validation, evaluation or sealed blocks of --pool. '
+                         'Use to train past a pool\'s clean prefix without touching the '
+                         'reserved regions.')
+    ap.add_argument('--extra-train-n', type=int, default=None,
+                    help='how many shots to take from --extra-train-pool (default: all)')
     ap.add_argument('--test-pool', default=None,
                     help='separate npz for a FRESH disjoint tail; strongly preferred')
     ap.add_argument('--eval-start', type=int, default=None,
@@ -526,6 +546,42 @@ def run():
                              "the cache is misaligned with these shots.")
         print(f"{LOG} teacher cache ok: {ntr:,} shots, mean p_teacher={p_teach.mean():.5f}",
               flush=True)
+
+    # --- optional independent training extension ------------------------------------
+    # Appended to the training prefix only. The extension is a separate generation with its
+    # own seed, so its shots are independent of every block of the primary pool; the
+    # validation, evaluation and sealed regions are read from the primary pool alone and
+    # are untouched by this.
+    if args.extra_train_pool:
+        if not os.path.exists(args.extra_train_pool):
+            raise SystemExit(f"{LOG} MISSING extra pool {args.extra_train_pool}")
+        zex = np.load(args.extra_train_pool)
+        n_ex = zex['measurements'].shape[0]
+        take = min(args.extra_train_n or n_ex, n_ex)
+        fp = args.extra_train_pool.replace('.npz', '.fingerprint.json')
+        if os.path.exists(fp):
+            meta_ex = json.load(open(fp))
+            if meta_ex.get('gen_seed') == _primary_gen_seed(train_fn):
+                raise SystemExit(
+                    f"{LOG} extra pool shares gen_seed {meta_ex.get('gen_seed')} with the "
+                    f"primary pool. Same seed means the same shot stream -- the extension "
+                    f"would duplicate training data and could repeat evaluation shots.")
+            print(f"{LOG} extra pool gen_seed={meta_ex.get('gen_seed')} "
+                  f"flips_sha={str(meta_ex.get('flips_sha256'))[:16]}", flush=True)
+        m_ex = zex['measurements'][0:take].astype(binary_t)
+        e_ex = zex['det_evts'][0:take].astype(binary_t)
+        f_ex = zex['flips'][0:take].astype(binary_t).reshape(-1)
+        b_ex, _, _ = split_measurements(m_ex, d, idx_t)
+        x_ex = assemble_features(b_ex, e_ex, args.inputs, student=args.student,
+                                 d=d, rounds=r, p=p)
+        del m_ex, b_ex, e_ex
+        x_tr = np.concatenate([x_tr, x_ex], axis=0)
+        f_tr = np.concatenate([f_tr, f_ex], axis=0)
+        z_teach = np.concatenate([z_teach, np.zeros(take, dtype=np.float32)], axis=0)
+        ntr = ntr + take
+        del x_ex
+        print(f"{LOG} training set extended by {take:,} shots from "
+              f"{os.path.basename(args.extra_train_pool)}; total {ntr:,}", flush=True)
 
     prov = run_provenance(args, train_fn, teacher_npz)
     print(f"{LOG} provenance: pool={prov['train_pool_dir']}/{prov['train_pool']} "
