@@ -180,6 +180,36 @@ print(f"[gru] pool gen_seed={m['gen_seed']}  flips_sha={m['flips_sha256'][:16]} 
 json.dump(m, open(out, 'w'), indent=2)
 PYPROV
 
+# Extension provenance, when the training set is augmented. Recorded beside the primary
+# pool's, with the exact range this run consumes, so the manifest states what was trained on
+# rather than what the file happens to contain.
+if [ -n "$EXTRA_POOL" ]; then
+  "$PY" - "$EXTRA_POOL" "$D" "$ROUNDS" "$P" "${EXTRA_N:-0}" "$OUT/extension_provenance.json" \
+  <<'PYEXT'
+import json, os, sys
+pool, d, r = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+p, take, out = float(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
+fp = pool.replace('.npz', '.fingerprint.json')
+if not os.path.exists(fp):
+    raise SystemExit(f"[gru] extension {pool} has no fingerprint; provenance required. STOP.")
+m = json.load(open(fp))
+if (m['d'], m['rounds'], float(m['p'])) != (d, r, p):
+    raise SystemExit(f"[gru] extension geometry d={m['d']} r={m['rounds']} p={m['p']} "
+                     f"does not match this run. STOP.")
+n = int(m['n_total'])
+used = take if take else n
+if used > n:
+    raise SystemExit(f"[gru] asked for {used:,} extension shots, pool holds {n:,}. STOP.")
+m['range_used'] = [0, used]
+m['note'] = ('Augmented training set: this range is appended to the primary pool prefix. '
+             'Validation, evaluation and sealed blocks come from the primary pool only.')
+json.dump(m, open(out, 'w'), indent=2)
+print(f"[gru] extension gen_seed={m['gen_seed']} flips_sha={m['flips_sha256'][:16]} "
+      f"purpose={m.get('purpose', 'unstated')} using [0, {used:,}) of {n:,}")
+PYEXT
+  [ $? -eq 0 ] || exit 1
+fi
+
 # Print the measured layout and parameter count
 "$PY" - "$STUDENT" "$UNITS" "$D" "$ROUNDS" "$P" $HIDDEN <<'PYPARAM'
 import os, sys
