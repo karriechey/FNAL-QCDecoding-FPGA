@@ -1,0 +1,15 @@
+experiment   : GRU distance scaling, d=7 r=7 p=0.004 (grace1 GH200)
+launched     : 2026-08-19T17:22:34Z  on 8c0dceb20a48
+pool         : /pools/data_d7_p0.004_r7_FORMAL.npz
+training     : [0, 10000000)
+validation   : [15000000, 15200000)
+evaluation   : [15200000, 17000000)
+sealed test  : [17000000, end of pool), not read
+recipe       : units=140 hidden=() inputs=evts alpha=1.0 hard labels
+             : batch=10000 lr=0.003 epochs=200 patience=5
+seeds        : 0 1 2
+d=5 at batch 5,000 (earlier study): p_L=0.008293 +/- 0.000150, MWPM 0.007572
+determinism  : TF_DETERMINISTIC_OPS=1  TF_CUDNN_DETERMINISTIC=1
+code sha     : 24ea84cb93d50d76  train_student.py
+             : e12d3415fb07fdc4  StudentModels.py
+             : ca7e1e25e61739f6  gh200_run_gru_scaling.sh

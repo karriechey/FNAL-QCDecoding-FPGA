@@ -1,0 +1,2 @@
+architecture,d,p,rounds,kernel,seed,n_train,n_test,epochs,epochs_ran,batch_size,n_params,p_L,mwpm_p_L,base_rate,beats_base_rate,best_val_loss,train_time_s,eval_start,eval_stop,eval_partition,mwpm_source,resumed_from_epoch
+FullRCNNModel,9,0.004,9,3,0,10000000,2000000,50,42,5000,76117,0.07458,,0.39417,1,0.1799,12977.3,15000000,15200000,validation,suppressed_different_shots,41

@@ -1,0 +1,16 @@
+experiment   : gru distance scaling, d=5 r=5 p=0.004 (grace1 GH200)
+launched     : 2026-08-19T18:50:23Z  on 2c59f99fa477
+pool         : /pools/data_d5_p0.004_r5_FORMAL.npz
+pool prov    : gen_seed=42 flips_sha=1c22b8a5960584162e21a833e622707c7d30d337435894ac6d973d1ddadfc79b n_total=19000000
+train        : [0, 10000000)
+validation   : [15000000, 15200000)
+evaluation   : [15200000, 17000000)
+sealed test  : [17000000, 19000000)   not read
+recipe       : gru units=140 hidden=() inputs=evts alpha=1.0 hard labels
+             : batch=10000 lr=0.003 epochs=200 early_stop=0
+selection    : min val_loss checkpoint, scored once on the evaluation block
+seeds        : 0 1 2
+determinism  : TF_DETERMINISTIC_OPS=1  TF_CUDNN_DETERMINISTIC=1
+code sha     : 24ea84cb93d50d76  train_student.py
+             : e12d3415fb07fdc4  StudentModels.py
+             : 888b00626574bfc6  gh200_run_student_scaling.sh

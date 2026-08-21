@@ -1,0 +1,2 @@
+weights,d,p,rounds,n_test,p_L,mwpm_p_L,mwpm_source,pool,ratio,base_rate,both_right,rcnn_only,mwpm_only,both_wrong,n_discordant,net_rcnn_wins,mcnemar_chi2_cc,p_chi2,p_exact
+d9_p004_rcnn_ntr10000000_seed0.best.weights.h5,9,0.004,9,1800000,0.059625,0.002303,redecoded_on_tail,data_d9_p0.004_r9_FORMAL.npz,25.8864,0.39291,1690448,2227,105406,1919,107633,-103179,98907.395,0.0,0.0
