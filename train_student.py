@@ -552,6 +552,11 @@ def run():
     # own seed, so its shots are independent of every block of the primary pool; the
     # validation, evaluation and sealed regions are read from the primary pool alone and
     # are untouched by this.
+    # The disjointness checks below are about index ranges inside the PRIMARY pool, so they
+    # must keep testing the primary prefix even after the training set is augmented with
+    # shots from a different pool.
+    ntr_primary = ntr
+
     if args.extra_train_pool:
         if not os.path.exists(args.extra_train_pool):
             raise SystemExit(f"{LOG} MISSING extra pool {args.extra_train_pool}")
@@ -618,9 +623,9 @@ def run():
         if args.val_n is None:
             raise SystemExit(f"{LOG} --val-start requires --val-n")
         v0, v1 = args.val_start, args.val_start + args.val_n
-        if v0 < ntr:
+        if v0 < ntr_primary:
             raise SystemExit(f"{LOG} validation [{v0}, {v1}) overlaps the training "
-                             f"prefix [0, {ntr}) -- not disjoint")
+                             f"prefix [0, {ntr_primary}) of the primary pool -- not disjoint")
         if v1 > Nte:
             raise SystemExit(f"{LOG} validation [{v0}, {v1}) exceeds pool size {Nte}")
         m_va = zte['measurements'][v0:v1].astype(binary_t)
@@ -660,8 +665,10 @@ def run():
         y_va = np.stack([f_va.astype(np.float32), z_va], axis=1)
         val_data = (x_va, y_va)
         steps = int(np.ceil(ntr / args.batch_size))
-        print(f"{LOG} partitions: train [0, {ntr:,})  validation [{v0:,}, {v1:,})  "
-              f"(validation_split disabled)", flush=True)
+        extra = ntr - ntr_primary
+        print(f"{LOG} partitions: train [0, {ntr_primary:,}) of the primary pool"
+              + (f" + {extra:,} augmentation shots" if extra else "")
+              + f"  validation [{v0:,}, {v1:,})  (validation_split disabled)", flush=True)
         print(f"{LOG} {steps} steps/epoch x {args.epochs} epochs = "
               f"{steps * args.epochs:,} optimizer updates", flush=True)
     else:
