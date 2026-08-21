@@ -268,10 +268,12 @@ lane_c () {
     log "lane C: no A1 sentinel after ${waited}s; continuing to the memory check"
   fi
 
-  # Two d=9 seeds need ~67 GB of the 97,871 MiB card, so lane C also waits for the space
-  # rather than trusting the schedule. Without this it can collide with lane B's d=7 15M
-  # job and one of them dies on its first host-to-device copy.
-  local need=70000 free waited2=0
+  # Two d=9 seeds hold ~67 GB combined (33.4 GB each, set by the 29.8 GiB training array
+  # that Keras copies to the device; the 40 GB cap is a ceiling, not a reservation). The
+  # threshold is 80 GB rather than 67 so an unattended start keeps ~13 GB of margin.
+  # This memory test is the launch condition -- the A1 sentinel only releases lane C into
+  # it, and says nothing about lane A being idle, since lane A runs its width probes on.
+  local need=80000 free waited2=0
   while [ $waited2 -lt 14400 ]; do
     free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | head -1)
     [ "${free:-0}" -ge $need ] && break
