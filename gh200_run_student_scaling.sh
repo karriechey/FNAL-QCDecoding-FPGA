@@ -37,6 +37,12 @@ HIDDEN="${HIDDEN:-}"       # MLP layer widths, space separated, e.g. "160 160"
 W_BITS="${W_BITS:-}"
 A_BITS="${A_BITS:-}"
 
+# Independent training-only extension, appended to the training prefix. Its pool must come
+# from a different generation seed than POOL, which train_student.py enforces; the
+# validation, evaluation and sealed blocks are still read from POOL alone.
+EXTRA_POOL="${EXTRA_POOL:-}"
+EXTRA_N="${EXTRA_N:-}"
+
 # Early stopping off by default. The full epoch budget runs and the reported model is the
 # minimum-val_loss checkpoint, so patience is not a tunable that moves the result.
 # EARLY_STOP=1 restores it with PATIENCE.
@@ -214,6 +220,7 @@ printf -v GEOMETRY '%s\n%s\n%s\n%s' \
   echo "             : batch=$BATCH lr=$LR epochs=$EPOCHS early_stop=$EARLY_STOP"
   echo "gpu cap      : ${GPU_MEM_MIB:-none} MiB per process"
   echo "quantization : weights=${W_BITS:-float32} activations=${A_BITS:-float32}"
+  echo "extension    : ${EXTRA_POOL:-none} n=${EXTRA_N:-all}"
   echo "selection    : min val_loss checkpoint, scored once on the evaluation block"
   if [ "$STUDENT" = "mlp" ]; then
     echo "reading      : size-matched feed-forward comparison against the GRU at this"
@@ -243,6 +250,11 @@ if [ -n "$GPU_MEM_MIB" ]; then
   ARCH+=(--gpu-mem-mib "$GPU_MEM_MIB")
 fi
 
+if [ -n "$EXTRA_POOL" ]; then
+  ARCH+=(--extra-train-pool "$EXTRA_POOL")
+  [ -n "$EXTRA_N" ] && ARCH+=(--extra-train-n "$EXTRA_N")
+fi
+
 if [ -n "$W_BITS" ]; then ARCH+=(--weight-bits "$W_BITS"); fi
 if [ -n "$A_BITS" ]; then ARCH+=(--act-bits "$A_BITS"); fi
 
@@ -260,6 +272,7 @@ run_seed () {
   # Float runs keep their original tag, so finished results still match the skip guard.
   local QTAG=""
   [ -n "$W_BITS$A_BITS" ] && QTAG="_w${W_BITS:-f32}_a${A_BITS:-f32}"
+  [ -n "$EXTRA_POOL" ] && QTAG="${QTAG}_ext${EXTRA_N:-all}"
   local TAG="${STUDENT}_d${D}_p004_${SIZE}${QTAG}_hard_seed${SEED}_ntr${NTRAIN}_b${BATCH}"
   local SEEDDIR="$OUT/seed${SEED}"
   local SRUNS="$SEEDDIR/runs"
