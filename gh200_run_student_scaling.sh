@@ -280,9 +280,12 @@ if [ -n "$GPU_MEM_MIB" ]; then
   ARCH+=(--gpu-mem-mib "$GPU_MEM_MIB")
 fi
 
+# Training-only flags. Kept out of ARCH because ARCH is also passed to the scoring call,
+# and eval_student_on_tail.py has no notion of a training-set extension.
+TRAIN_ONLY=()
 if [ -n "$EXTRA_POOL" ]; then
-  ARCH+=(--extra-train-pool "$EXTRA_POOL")
-  [ -n "$EXTRA_N" ] && ARCH+=(--extra-train-n "$EXTRA_N")
+  TRAIN_ONLY+=(--extra-train-pool "$EXTRA_POOL")
+  [ -n "$EXTRA_N" ] && TRAIN_ONLY+=(--extra-train-n "$EXTRA_N")
 fi
 
 if [ -n "$W_BITS" ]; then ARCH+=(--weight-bits "$W_BITS"); fi
@@ -322,7 +325,7 @@ run_seed () {
     echo "pool prov    : $PROV"
     date -u '+%Y-%m-%dT%H:%M:%SZ start'
     # --tail-diagnostics stays off; it scores the evaluation block every epoch.
-    "$PY" train_student.py "${ARCH[@]}" "${STOPPING[@]}" \
+    "$PY" train_student.py "${ARCH[@]}" "${STOPPING[@]}" "${TRAIN_ONLY[@]}" \
       --d "$D" --p "$P" --rounds "$ROUNDS" \
       --pool "$POOL" \
       --n-train "$NTRAIN" \
