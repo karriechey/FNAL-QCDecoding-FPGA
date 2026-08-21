@@ -26,6 +26,12 @@ QLOG="${QLOG:-$HOME/overnight_queue.log}"
 STATE="${STATE:-$HOME/queue_state}"
 mkdir -p "$STATE"
 
+# Host-side python for the analyzer: it needs numpy and matplotlib, which the bare system
+# python3 may not have. ~/tfenv is the CPU venv on grace1; the stdlib-only helpers in this
+# script keep using plain python3.
+PY_HOST="${PY_HOST:-$HOME/tfenv/bin/python}"
+[ -x "$PY_HOST" ] || PY_HOST=python3
+
 D5DIR="$HOME/pools_d5_p004_19M"; D5POOL=/pools/data_d5_p0.004_r5_FORMAL.npz
 D7DIR="$HOME/pools_d7_p004_19M"; D7POOL=/pools/data_d7_p0.004_r7_FORMAL.npz
 D9DIR="$HOME/pools_d9_p004_19M"; D9POOL=/pools/data_d9_p0.004_r9_FORMAL.npz
@@ -158,7 +164,7 @@ sys.exit(0 if all(checks.values()) else 1)
 PYEOF
   local artifacts=$?
   log "=== analyzer sees it ==="
-  python3 "$REPO/analyze_gru_histories.py" --results "$RT/results" \
+  "$PY_HOST" "$REPO/analyze_gru_histories.py" --results "$RT/results" \
     --pattern "preflight_d5_100k_*" --out "$HOME/gru_diag_preflight" 2>&1 | tail -8 | tee -a "$QLOG"
   local analyzer=$?
   if [ "$ok" = "1" ] && [ $artifacts -eq 0 ] && [ $analyzer -eq 0 ]; then
@@ -222,7 +228,7 @@ lane_a () {
       D=5 ROUNDS=5 STUDENT=gru UNITS="$best_u" SEEDS="0 1 2" EPOCHS=200 NTRAIN=15000000 PARALLEL=1 >/dev/null
   else
     log "width gains at d=5 are inside the gate; consulting the learning curves instead"
-    python3 "$REPO/analyze_gru_histories.py" --results "$RT/results" --out "$HOME/gru_diag" \
+    "$PY_HOST" "$REPO/analyze_gru_histories.py" --results "$RT/results" --out "$HOME/gru_diag" \
       >> "$QLOG" 2>&1
     # The epoch branch runs only when the diagnostics say a d=5 run is epoch-limited.
     if python3 - "$HOME/gru_diag/gru_history_summary.csv" <<'PYEOF'
@@ -311,6 +317,6 @@ lane_c & C=$!
 wait $A $B $C
 log "queue empty"
 
-python3 "$REPO/analyze_gru_histories.py" --results "$RT/results" --out "$HOME/gru_diag" \
+"$PY_HOST" "$REPO/analyze_gru_histories.py" --results "$RT/results" --out "$HOME/gru_diag" \
   2>&1 | tail -30 | tee -a "$QLOG"
 log "sealed block [17M, 19M) untouched; final scoring is a manual step tomorrow"
