@@ -34,6 +34,7 @@ RUNS = [
     (9, 'gru', 'GRU u140',   92961, 10000, 15e6, 1, 0.030758, 0.0,      0.002267, 16,  53, 'GH200', '08-21'),
     # LR 1e-3 instead of the protocol's 3e-3: the lower rate removed the instability, but it
     # changes two variables against the 10M baseline, so it is a diagnostic, not a ladder rung.
+    (9, 'gru', 'GRU u140 LR1e-3', 92961, 10000, 10e6, 1, 0.029258, 0.0, 0.002267,  8, 28, 'GH200', '08-21'),
     (9, 'gru', 'GRU u140 LR1e-3', 92961, 10000, 15e6, 1, 0.027671, 0.0, 0.002267, 12, 53, 'GH200', '08-21'),
     (9, 'rcnn', 'RCNN',      76117,  5000, 10e6, 1, 0.074773, 0.0,      0.002303, 8650, 6060, 'A100', '08-14'),
 ]
@@ -84,19 +85,24 @@ def load_curves(meta, epochs=200):
         units = next((u for u in (200, 280, 140) if f'_u{u}_' in tag), 140)
         hidden = tag.split('_h')[1].split('_')[0] if tag.startswith('mlp') else ''
         shots = 20_000_000 if 'ext5000000' in tag else int(tag.split('_ntr')[1].split('_')[0])
+        run = os.path.basename(os.path.dirname(seed_dir))   # .../<run dir>/seedN
         out.append(dict(
+            run=run, lr=1e-3 if 'lr1e3' in run else 3e-3,
             tag=tag, d=d, arch='mlp' if tag.startswith('mlp') else 'gru',
             units=units, hidden=hidden, shots=shots,
             seed=int(tag.split('_seed')[1].split('_')[0]),
             val=[float(x) for x in val], train=[float(x) for x in hist.get('loss', [])],
             best=min(range(len(val)), key=lambda i: val[i]),
             verified=os.path.exists(os.path.join(seed_dir, 'COMPLETE'))))
-    # one line per (config, seed); dedupe repeats of the same tag from superseded directories
+    # One line per (run directory, tag). The tag alone is not unique: it carries no learning
+    # rate, so a run repeated at a different rate collides with its original, and keying on it
+    # would silently drop one of the two.
     seen, uniq = set(), []
     for c in sorted(out, key=lambda c: (c['d'], c['shots'], c['units'], c['seed'])):
-        if c['tag'] in seen:
+        key = (c['run'], c['tag'])
+        if key in seen:
             continue
-        seen.add(c['tag']); uniq.append(c)
+        seen.add(key); uniq.append(c)
     return uniq
 
 
