@@ -54,13 +54,20 @@ def style(ax, xlab, ylab):
 # --- A: the data ladders ----------------------------------------------------------------
 for d in (5, 7, 9):
     lad = sorted([r for r in R if r['d'] == d and r['arch'] == 'gru'
-                  and r['label'] == 'GRU u140'], key=lambda r: r['shots'])
+                  and r['label'] == 'GRU u140' and not r['diverged']],
+                 key=lambda r: r['shots'])
     axA.errorbar([r['shots'] for r in lad], [r['p_L'] for r in lad],
                  yerr=[r['sd'] for r in lad], color=C[d], marker='o', markersize=7,
                  lw=2.2, capsize=3, markeredgecolor='white', markeredgewidth=1.4, zorder=4)
     axA.axhline(MWPM[d], color=C[d], ls='--', lw=1.2, alpha=0.5, zorder=2)
     axA.annotate(f'MWPM d={d}', xy=(1.75e6, MWPM[d]), xytext=(0, 3),
                  textcoords='offset points', fontsize=8, color=C[d], alpha=0.9)
+for r in [r for r in R if r['diverged']]:
+    axA.plot([r['shots']], [r['p_L']], marker='X', markersize=10, color=C[r['d']],
+             markerfacecolor='white', markeredgewidth=2.0, zorder=5)
+    axA.annotate('diverged', xy=(r['shots'], r['p_L']), xytext=(9, -3),
+                 textcoords='offset points', fontsize=8.5, color=C[r['d']])
+
 axA.plot([SEALED['shots']], [SEALED['p_L']], marker='*', markersize=17, color=C[5],
          markeredgecolor='white', markeredgewidth=1.2, zorder=6)
 axA.annotate('sealed block\n0.95x MWPM', xy=(SEALED['shots'], SEALED['p_L']),
@@ -79,7 +86,7 @@ for d in (5, 7, 9):
                  key=lambda r: r['shots'])
     axA.annotate(f'd={d}', xy=(lad[-1]['shots'], lad[-1]['p_L']), xytext=(9, 3),
                  textcoords='offset points', fontsize=10, color=C[d], fontweight='medium')
-axA.set_title('A   more data, lower error — d=5 crosses MWPM at 20M',
+axA.set_title('A   Logical Error Rate vs Training Set Size',
               fontsize=10.5, color=INK, loc='left', pad=8)
 
 # --- B: everything as a ratio, grouped by distance ---------------------------------------
@@ -108,7 +115,7 @@ axB.xaxis.set_major_locator(FixedLocator([1, 2, 5, 10, 30]))
 axB.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{v:g}x'))
 axB.xaxis.set_minor_formatter(NullFormatter())
 style(axB, 'p_L / MWPM p_L', '')
-axB.set_title('B   every configuration against its own MWPM',
+axB.set_title('B   Every Configuration Relative to Its Own MWPM Baseline',
               fontsize=10.5, color=INK, loc='left', pad=8)
 
 # --- C: validation curves for every completed run ----------------------------------------
@@ -138,8 +145,8 @@ axC.yaxis.set_major_locator(FixedLocator([0.02, 0.03, 0.05, 0.08, 0.12, 0.2, 0.3
 axC.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{v:g}'))
 axC.yaxis.set_minor_formatter(NullFormatter())
 style(axC, 'epoch', 'validation loss')
-axC.set_title(f'C   validation loss, {drawn} runs — one line per seed per configuration '
-              '(dot = the scored epoch; RCNN stops where early stopping fired)',
+axC.set_title(f'C   Validation Loss During Training, {drawn} Runs — One Line per Seed '
+              '(dot = scored epoch; RCNN ends where early stopping fired)',
               fontsize=10.5, color=INK, loc='left', pad=8)
 if drawn == 0:
     axC.text(0.5, 0.5, 'run the rsync from grace1 to populate results_meta/',
@@ -147,8 +154,8 @@ if drawn == 0:
 
 # --- D and E: what accuracy cost ----------------------------------------------------------
 for ax, key, xlab, title in (
-        (axD, 'params', 'parameters', 'D   parameters bought little — the wins came from data'),
-        (axE, 'minutes', 'training minutes (1 seed)', 'E   and cost minutes, not hours')):
+        (axD, 'params', 'parameters', 'D   Accuracy vs Model Size'),
+        (axE, 'minutes', 'training minutes (1 seed)', 'E   Accuracy vs Training Cost')):
     for r in R:
         ax.plot([r[key]], [r['p_L'] / r['mwpm']], marker=M[r['arch']], markersize=8,
                 color=C[r['d']], markerfacecolor=C[r['d']] if r['arch'] == 'gru' else 'white',
@@ -175,8 +182,9 @@ hand = [plt.Line2D([], [], marker='o', ls='none', color=MUTED, markersize=8, lab
                    markeredgewidth=1.6, markersize=8, label='RCNN')]
 axE.legend(handles=hand, frameon=False, fontsize=9, loc='upper right')
 
-fig.suptitle('Experiment 16 — surface-code decoding at p=0.004: 17 configurations across '
-             'three distances', fontsize=15, color=INK, x=0.008, ha='left', y=0.985)
+fig.suptitle('Experiment 16 — Surface-Code Decoding at p = 0.004, r = d: '
+             '17 Configurations Across Three Code Distances',
+             fontsize=15.5, color=INK, x=0.008, ha='left', y=0.985)
 fig.text(0.008, 0.952, 'A 69,441-parameter GRU reaches 0.95x MWPM at d=5 given 20M training '
          'shots, confirmed on a sealed block. Colour is distance throughout; marker is '
          'architecture.', fontsize=10, color=MUTED)

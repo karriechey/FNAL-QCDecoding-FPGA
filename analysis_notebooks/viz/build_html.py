@@ -172,20 +172,22 @@ function draw() {
     const lad = DATA.runs.filter(r => r.d === d && r.label === 'GRU u140')
                          .sort((a,b) => a.shots - b.shots);
     if (lad.length < 2) continue;
-    const pts = lad.map(r => `${xs(r.shots)},${ys(r.p_L)}`).join(' ');
+    const pts = lad.filter(r => !r.diverged).map(r => `${xs(r.shots)},${ys(r.p_L)}`).join(' ');
     svg.appendChild(el('polyline', {points:pts, fill:'none', stroke:C[d], 'stroke-width':2.5}));
   }
 
   DATA.runs.forEach(r => {
     if (!state.d.has(r.d) || !state.arch.has(r.arch)) return;
     const g = marker(SHAPE[r.arch], xs(r.shots), ys(r.p_L), 7,
-                     r.seeds === 3 ? C[r.d] : '#fff', C[r.d]);
+                     r.diverged ? '#fff' : (r.seeds === 3 ? C[r.d] : '#fff'), C[r.d]);
+    if (r.diverged) g.setAttribute('stroke-dasharray', '3 2');
     g.style.cursor = 'pointer';
     const ratio = (r.p_L / r.mwpm).toFixed(3);
     g.onmousemove = e => show(e,
       `<b>d=${r.d} · ${r.label}</b><br>${(r.shots/1e6)} M shots · ${r.seeds} seed${r.seeds>1?'s':''}<br>` +
       `p_L ${r.p_L.toFixed(6)}${r.sd ? ' ± ' + r.sd.toFixed(6) : ''}<br>` +
-      `<b>${ratio}× MWPM</b> (${r.mwpm})<br>${r.params.toLocaleString()} params · ${r.minutes} min · ${r.machine}`);
+      `<b>${ratio}× MWPM</b> (${r.mwpm})<br>${r.params.toLocaleString()} params · ${r.minutes} min · ${r.machine}` +
+      (r.diverged ? '<br><b>diverged</b> — val_loss rose after epoch 56' : ''));
     g.onmouseleave = hide;
     svg.appendChild(g);
   });
@@ -257,7 +259,7 @@ function table() {
         `<td><span class="dot" style="background:${C[r.d]}"></span>${r.d}</td>` +
         `<td>${r.label}</td><td>${r.shots/1e6}M</td><td>${r.seeds}</td>` +
         `<td>${r.p_L.toFixed(6)}${r.sd ? ' ± ' + r.sd.toFixed(6) : ''}</td>` +
-        `<td>${r.mwpm}</td><td><b>${r.ratio.toFixed(3)}×</b></td>` +
+        `<td>${r.mwpm}</td><td><b>${r.ratio.toFixed(3)}×</b>${r.diverged ? ' ⚠' : ''}</td>` +
         `<td>${r.params.toLocaleString()}</td><td>${r.minutes}</td>` +
         `<td>${r.machine}</td><td>${r.date}</td></tr>`).join('');
     t.querySelectorAll('th').forEach(th => th.onclick = () => {

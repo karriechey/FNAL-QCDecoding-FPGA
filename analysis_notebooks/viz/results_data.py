@@ -23,22 +23,38 @@ RUNS = [
     (7, 'gru', 'GRU u140',   79521, 10000,  5e6, 3, 0.022014, 0.001207, 0.004291,  5,  17, 'GH200', '08-20'),
     (7, 'gru', 'GRU u140',   79521, 10000, 10e6, 3, 0.012324, 0.000447, 0.004291, 11,  37, 'GH200', '08-19'),
     (7, 'gru', 'GRU u140',   79521, 10000, 15e6, 3, 0.009883, 0.001088, 0.004291, 15,  50, 'GH200', '08-21'),
+    (7, 'gru', 'GRU u140',   79521, 10000, 20e6, 2, 0.009045, 0.000921, 0.004291, 15,  50, 'GH200', '08-21'),
     (7, 'gru', 'GRU u280',  276641, 10000, 10e6, 1, 0.013338, 0.0,      0.004291,  8,  27, 'GH200', '08-20'),
     (7, 'mlp', 'MLP 160',    79841, 10000, 10e6, 3, 0.041561, 0.004435, 0.004291,  5,  17, 'GH200', '08-19'),
     (9, 'gru', 'GRU u140',   92961, 10000, 10e6, 3, 0.028793, 0.001338, 0.002267, 10,  35, 'GH200', '08-19'),
     (9, 'gru', 'GRU u280',  303521, 10000, 10e6, 3, 0.024116, 0.000919, 0.002267, 11,  37, 'GH200', '08-21'),
+    # Diverged: val_loss bottomed at 0.0796 (epoch 56) then rose to 0.249. The scored
+    # checkpoint is that epoch-56 model, worse than every 10M seed, so this is a record of a
+    # failed optimisation rather than a data-scaling point. DIVERGED marks it for the plots.
+    (9, 'gru', 'GRU u140',   92961, 10000, 15e6, 1, 0.030758, 0.0,      0.002267, 16,  53, 'GH200', '08-21'),
+    # LR 1e-3 instead of the protocol's 3e-3: the lower rate removed the instability, but it
+    # changes two variables against the 10M baseline, so it is a diagnostic, not a ladder rung.
+    (9, 'gru', 'GRU u140 LR1e-3', 92961, 10000, 15e6, 1, 0.027671, 0.0, 0.002267, 12, 53, 'GH200', '08-21'),
     (9, 'rcnn', 'RCNN',      76117,  5000, 10e6, 1, 0.074773, 0.0,      0.002303, 8650, 6060, 'A100', '08-14'),
 ]
 COLS = ('d', 'arch', 'label', 'params', 'batch', 'shots', 'seeds', 'p_L', 'sd',
         'mwpm', 's_epoch', 'minutes', 'machine', 'date')
+
+# Runs whose optimisation failed. They are real measurements of what the recipe did, and
+# they belong in the tables, but a ladder line drawn through them would imply the data
+# volume caused the result when the optimiser did.
+DIVERGED = {(9, 'GRU u140', 15e6)}
 
 # The sealed-block confirmation of the winning configuration, kept separate: different
 # shots, different MWPM, and it is a confirmation rather than a tuning result.
 SEALED = dict(d=5, label='GRU u140 20M aug', params=69441, shots=20e6, seeds=3,
               p_L=0.007141, sd=0.000083, mwpm=MWPM_SEALED, block='[17M, 19M)')
 
-def rows():
-    return [dict(zip(COLS, r)) for r in RUNS]
+def rows(include_diverged=True):
+    out = [dict(zip(COLS, r)) for r in RUNS]
+    for r in out:
+        r['diverged'] = (r['d'], r['label'], r['shots']) in DIVERGED
+    return out if include_diverged else [r for r in out if not r['diverged']]
 
 
 def load_curves(meta, epochs=200):

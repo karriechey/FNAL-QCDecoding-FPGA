@@ -28,8 +28,8 @@ _all = load_curves(META) + load_rcnn_curves(
     os.environ.get('RESULTS_META_EAF', os.path.join(META, '..', 'results_meta_eaf')))
 curves = [(c['d'], c['arch'], np.array(c['val'])) for c in _all]
 
-R = sorted([r for r in rows() if r['arch'] == 'gru' and r['label'] == 'GRU u140'],
-           key=lambda r: (r['d'], r['shots']))
+R = sorted([r for r in rows() if r['arch'] == 'gru' and r['label'] == 'GRU u140'
+            and not r['diverged']], key=lambda r: (r['d'], r['shots']))
 
 fig, (axL, axR) = plt.subplots(1, 2, figsize=(15.0, 6.4))
 fig.patch.set_facecolor('white')
@@ -53,7 +53,8 @@ axL.set_xlim(0, 205); axL.set_yscale('log'); axL.set_ylim(0.018, 0.42)
 axL.yaxis.set_major_locator(FixedLocator([0.02, 0.03, 0.05, 0.08, 0.12, 0.2, 0.3, 0.4]))
 axL.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{v:g}'))
 axL.yaxis.set_minor_formatter(NullFormatter())
-style(axL, 'epoch', 'validation loss', f'training — {len(curves)} runs, one line per seed')
+style(axL, 'epoch', 'validation loss',
+      f'Validation Loss During Training ({len(curves)} Runs, One Line per Seed)')
 
 axR.set_xscale('log'); axR.set_yscale('log')
 axR.set_xlim(1.6e6, 34e6); axR.set_ylim(0.0018, 0.09)
@@ -63,7 +64,8 @@ axR.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{v/1e6:g}M'))
 axR.yaxis.set_major_locator(FixedLocator([0.002, 0.003, 0.005, 0.008, 0.0125, 0.02, 0.03, 0.05]))
 axR.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{v:g}'))
 axR.yaxis.set_minor_formatter(NullFormatter())
-style(axR, 'training shots', 'logical error rate  p_L', 'what each finished run scored')
+style(axR, 'training shots', 'logical error rate  p_L',
+      'Logical Error Rate vs Training Set Size — GRU units=140, Scored on [15.2M, 17.0M)')
 for d in (5, 7, 9):
     axR.axhline(MWPM[d], color=C[d], ls='--', lw=1.3, alpha=0.55)
     axR.annotate(f'MWPM d={d}', xy=(1.75e6, MWPM[d]), xytext=(0, 4),
@@ -74,10 +76,18 @@ lines = [axL.plot([], [], color=C_RCNN if a == 'rcnn' else C[d],
                   alpha=0.95 if a == 'rcnn' else (0.8 if a == 'gru' else 0.45),
                   ls={'gru': '-', 'mlp': (0, (3, 2)), 'rcnn': (0, (1, 1.6))}[a])[0]
          for d, a, _ in curves]
-ladders = {d: axR.plot([], [], color=C[d], lw=2.3, marker='o', markersize=7,
-                       markeredgecolor='white', markeredgewidth=1.4)[0] for d in (5, 7, 9)}
-star, = axR.plot([], [], marker='*', markersize=18, color=C[5],
-                 markeredgecolor='white', markeredgewidth=1.2, ls='none')
+for d in (5, 7, 9):
+    lad = [r for r in R if r['d'] == d]
+    axR.plot([r['shots'] for r in lad], [r['p_L'] for r in lad], color=C[d], lw=2.3,
+             marker='o', markersize=7, markeredgecolor='white', markeredgewidth=1.4)
+    axR.annotate(f'GRU d = {d}', xy=(lad[-1]['shots'], lad[-1]['p_L']), xytext=(9, 3),
+                 textcoords='offset points', fontsize=10, color=C[d], fontweight='medium')
+axR.plot([SEALED['shots']], [SEALED['p_L']], marker='*', markersize=18, color=C[5],
+         markeredgecolor='white', markeredgewidth=1.2, ls='none')
+axR.annotate('GRU d = 5, sealed block [17M, 19M)\n0.95x MWPM',
+             xy=(SEALED['shots'], SEALED['p_L']), xytext=(-8, -36),
+             textcoords='offset points', ha='right', fontsize=9, color=C[5],
+             fontweight='medium')
 # The curves are unlabelled otherwise: colour is the only thing distinguishing distance.
 handles = [plt.Line2D([], [], color=C[d], lw=2, label=f'd = {d}') for d in (5, 7, 9)]
 handles.append(plt.Line2D([], [], color=MUTED, lw=1.6, ls=(0, (3, 2)), alpha=0.7,
@@ -88,8 +98,7 @@ axL.legend(handles=handles, frameon=False, fontsize=10, loc='upper right',
 
 epoch_txt = axL.text(0.97, 0.96, '', transform=axL.transAxes, ha='right', fontsize=12,
                      color=MUTED, fontweight='medium')
-note = axR.text(0.98, 0.93, '', transform=axR.transAxes, ha='right', fontsize=10.5,
-                color=C[5], fontweight='medium')
+
 
 FRAMES, HOLD = 100, 12
 
@@ -101,20 +110,12 @@ def update(f):
         ln.set_data(np.arange(1, k + 1), v[:k])
     epoch_txt.set_text(f'epoch {e}')
 
-    # a run appears on the right once its training would have finished
-    frac = e / 200
-    for d in (5, 7, 9):
-        lad = [r for r in R if r['d'] == d]
-        n = int(round(frac * len(lad)))
-        ladders[d].set_data([r['shots'] for r in lad[:n]], [r['p_L'] for r in lad[:n]])
-    if e >= 200:
-        star.set_data([SEALED['shots']], [SEALED['p_L']])
-        note.set_text('d=5 at 20M shots: 0.95× MWPM\nconfirmed on the sealed block')
-    return lines + list(ladders.values()) + [star, epoch_txt, note]
+    return lines + [epoch_txt]
 
 
-fig.suptitle(f'Experiment 16 — {len(curves)} training runs, three distances, one decoder that beats matching',
-             fontsize=13.5, color=INK, x=0.008, ha='left')
+fig.suptitle('Experiment 16 — Surface-Code Decoding at p = 0.004, r = d: '
+             f'{len(curves)} Training Runs Across Three Code Distances',
+             fontsize=14, color=INK, x=0.008, ha='left')
 fig.tight_layout(rect=[0, 0, 1, 0.94])
 anim = FuncAnimation(fig, update, frames=FRAMES, blit=False)
 os.makedirs(OUT, exist_ok=True)
