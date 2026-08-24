@@ -94,6 +94,10 @@ axR.annotate('matches MWPM', xy=(1.75e6, 1.0), xytext=(0, 7), textcoords='offset
 
 axL.set_ylabel('logical error rate  p_L', fontsize=11, color=INK)
 axR.set_ylabel('p_L / MWPM p_L', fontsize=11, color=INK)
+axL.set_title("Absolute Logical Error Rate, With Each Distance's MWPM",
+              fontsize=11.5, color=INK, loc='left', pad=10)
+axR.set_title('The Same Runs Relative to Their Own MWPM (1.0 = Matching)',
+              fontsize=11.5, color=INK, loc='left', pad=10)
 axL.yaxis.set_major_locator(FixedLocator(
     [0.002, 0.003, 0.004, 0.005, 0.006, 0.008, 0.01, 0.0125, 0.02, 0.03, 0.05, 0.075]))
 axR.yaxis.set_major_locator(FixedLocator([0.9, 1, 1.5, 2, 3, 5, 7, 10, 15, 20, 30]))
