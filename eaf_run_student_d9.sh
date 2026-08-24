@@ -38,6 +38,10 @@ EPOCHS="${EPOCHS:-50}"
 MLP_HIDDEN="${MLP_HIDDEN:-209 209}"
 GRU_UNITS="${GRU_UNITS:-140}"
 LR="${LR:-0.003}"
+# Physical error rate. 0.010 is Exp 10's setting and stays the default.
+# p=0.003 sits below the ~0.0065 threshold, where distance suppresses errors
+# rather than amplifying them, and needs a matching pool.
+P="${P:-0.010}"
 PY="${PY:-python}"
 
 [ -f "$POOL" ] || { echo "missing $POOL -- build it first:"; \
@@ -63,13 +67,13 @@ for arch in $ARCHS; do
     tag="d9hard_${arch}_ntr${NTRAIN}_seed${s}_lr${LR}${TAGSUF:-}"
     echo "=============== [$i/$n] $tag ==============="
     $PY train_student.py --student "$arch" --inputs evts $SIZE \
-      --d 9 --p 0.010 --rounds 9 \
+      --d 9 --p "$P" --rounds 9 \
       --alpha 1.0 --temperature 1.0 --lr "$LR" \
       --seed "$s" --n-train "$NTRAIN" --n-test "$VAL_N" --eval-start "$VAL_START" \
       --val-start "$VAL_START" --val-n "$VAL_N" \
       --epochs "$EPOCHS" --batch-size 10000 --no-early-stopping \
       --pool "$POOL" --out-dir "$OUTDIR" --tag "$tag" 2>&1 \
-      | grep -Ev "cuda_|Unable to register|^Total number|^Number of unique|^Epoch |- loss:"
+      | grep --line-buffered -Ev "cuda_|Unable to register|^Total number|^Number of unique|^Epoch |- loss:"
     echo
   done
 done

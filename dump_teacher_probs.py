@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Created: 2026-07-29
-# Last modified: 2026-07-29
+# Last modified: 2026-08-17
 """Cache the FP32 teacher's per-shot output over a pool, for knowledge distillation.
 
 The teacher is frozen, so its output for a shot never changes across epochs, seeds or
@@ -25,6 +25,22 @@ in the trainer so there is only one copy of the disjointness rule.
       --weights ~/rcnn_threshold/out_t200k_w/rcnn_d5_p0.010_r3_seed0_ntr10000000.weights.h5 \
       --d 5 --p 0.010 --rounds 3 --n-shots 1000000 \
       --out ~/rcnn_threshold/teacher/teacher_seed0_first1M.npz
+
+Two teacher architectures
+-------------------------
+`--teacher-arch rcnn` (default) rebuilds CNNModel.FullRCNNModel, whose head ends in a
+sigmoid: it emits a probability, and the stored logit is recovered by inverting that
+sigmoid in float64.
+
+`--teacher-arch gru` rebuilds StudentModels.build_gru_student -- the same GRU family the
+students come from, used as the teacher for the parameter-reduction study at d=5, r=5,
+p=0.004. That model's head is linear by design (see StudentModels' module docstring), so
+it emits the logit directly and the stored probability is sigmoid(logit). Running
+recover_logit() on a GRU output would be wrong in both directions: it would treat a logit
+as a probability, and every value outside (0, 1) would be clipped to the +/-16 rails.
+
+The output .npz layout, fingerprints and metadata are identical for both architectures, so
+train_student.py consumes either without knowing which produced it.
 """
 import argparse
 import hashlib
@@ -72,7 +88,18 @@ def recover_logit(p):
 def run():
     ap = argparse.ArgumentParser()
     ap.add_argument('--weights', required=True,
-                    help='teacher .weights.h5 saved by train_one.py --save-weights')
+                    help='teacher .weights.h5 saved by train_one.py --save-weights, or by '
+                         'train_student.py when --teacher-arch gru')
+    ap.add_argument('--teacher-arch', choices=['rcnn', 'gru'], default='rcnn',
+                    help="'rcnn' = CNNModel.FullRCNNModel (sigmoid head, probability out); "
+                         "'gru' = StudentModels.build_gru_student (linear head, logit out). "
+                         'See the module docstring for why the two are converted differently.')
+    ap.add_argument('--units', type=int, default=64,
+                    help='GRU hidden-state width; --teacher-arch gru only. Must match the '
+                         'width the checkpoint was trained with or load_weights fails.')
+    ap.add_argument('--student-hidden', type=int, nargs='*', default=[],
+                    help='Dense widths between the GRU and its head; --teacher-arch gru '
+                         'only. Empty (the default) matches the studies run so far.')
     ap.add_argument('--d', type=int, required=True)
     ap.add_argument('--p', type=float, required=True)
     ap.add_argument('--rounds', type=int, required=True)
@@ -138,28 +165,53 @@ def run():
 
     # Slice before the measurement split so only the requested shots are materialised;
     # the arrays are ~1 GB each at 10M.
-    measurements = z['measurements'][sl].astype(binary_t)
     det_evts = z['det_evts'][sl].astype(binary_t)
     flips = z['flips'][sl].astype(binary_t)
-    det_bits, _obs_bits, _data_bits = split_measurements(measurements, d, idx_t)
 
     hidden = [args.hidden for _ in range(args.hidden_layers)]
-    if args.weight_bits is None or args.weight_bits >= 32:
-        from CNNModel import FullRCNNModel
-        model = FullRCNNModel(
-            'ZL', d, k, r, hidden, npol=args.npol, stop_round=None,
-            has_nonuniform_response=False, do_all_data_qubits=False, return_all_rounds=False)
-    else:
-        from CNNModel_quantized import build_quantized_rcnn
-        model = build_quantized_rcnn(
-            args.weight_bits, 'ZL', d, k, r, hidden, npol=args.npol, stop_round=None,
-            has_nonuniform_response=False, do_all_data_qubits=False, return_all_rounds=False)
-    _ = model([det_bits[0:1], det_evts[0:1]])  # build so the checkpoint layout matches
-    model.load_weights(args.weights)
+    if args.teacher_arch == 'gru':
+        # The GRU teacher reads det_evts only, so the measurement array is never sliced --
+        # that is ~1.5 GB of IO and host memory avoided per dump at 10M shots. The scatter
+        # into [n_timesteps, n_positions] happens in numpy, exactly as in the trainer, so
+        # the teacher and the students it supervises share one input pipeline.
+        from StudentModels import assemble_features, build_gru_student
+        model = build_gru_student(d=d, rounds=r, inputs='evts', units=args.units,
+                                  hidden=tuple(args.student_hidden), p=p)
+        x = assemble_features(None, det_evts, 'evts', student='gru', d=d, rounds=r, p=p)
+        print(f"[teacher] gru teacher units={args.units} "
+              f"hidden={tuple(args.student_hidden)} params={model.count_params():,} "
+              f"input{x.shape[1:]}", flush=True)
+        model.load_weights(args.weights)
 
-    pred = model.predict([det_bits, det_evts], batch_size=args.batch_size, verbose=0)
-    p_teacher = np.asarray(pred, dtype=np.float32).reshape(-1)
-    logit_teacher = recover_logit(p_teacher).astype(np.float32)
+        # Linear head: this is the logit. p follows from it, not the other way round.
+        pred = model.predict(x, batch_size=args.batch_size, verbose=0)
+        logit_teacher = np.asarray(pred, dtype=np.float32).reshape(-1)
+        p_teacher = (1.0 / (1.0 + np.exp(-logit_teacher.astype(np.float64)))).astype(np.float32)
+        del x
+    else:
+        measurements = z['measurements'][sl].astype(binary_t)
+        det_bits, _obs_bits, _data_bits = split_measurements(measurements, d, idx_t)
+        if args.weight_bits is None or args.weight_bits >= 32:
+            from CNNModel import FullRCNNModel
+            model = FullRCNNModel(
+                'ZL', d, k, r, hidden, npol=args.npol, stop_round=None,
+                has_nonuniform_response=False, do_all_data_qubits=False,
+                return_all_rounds=False)
+        else:
+            from CNNModel_quantized import build_quantized_rcnn
+            model = build_quantized_rcnn(
+                args.weight_bits, 'ZL', d, k, r, hidden, npol=args.npol, stop_round=None,
+                has_nonuniform_response=False, do_all_data_qubits=False,
+                return_all_rounds=False)
+        _ = model([det_bits[0:1], det_evts[0:1]])  # build so the checkpoint layout matches
+        model.load_weights(args.weights)
+
+        # Sigmoid head: this is a probability, and the logit is recovered by inverting it.
+        pred = model.predict([det_bits, det_evts], batch_size=args.batch_size, verbose=0)
+        p_teacher = np.asarray(pred, dtype=np.float32).reshape(-1)
+        logit_teacher = recover_logit(p_teacher).astype(np.float32)
+        del measurements, det_bits
+
     truth = np.asarray(flips, dtype=np.int8).reshape(-1)
 
     # The teacher's p_L on the dumped shots. In-sample when --n-start covers the training
@@ -187,6 +239,11 @@ def run():
         # wrong pool or the wrong teacher checkpoint by accident
         d=d, p=p, rounds=r, kernel=k, hidden=args.hidden,
         hidden_layers=args.hidden_layers, npol=args.npol,
+        # Which architecture produced these outputs, and its width. Recorded so a cache
+        # cannot be silently attributed to the wrong teacher family when both an RCNN and
+        # a GRU teacher exist for the same pool.
+        teacher_arch=args.teacher_arch, units=args.units,
+        student_hidden=np.asarray(args.student_hidden, dtype=np.int64),
         weight_bits=(-1 if args.weight_bits is None else args.weight_bits),
         n_start=lo, n_shots=args.n_shots,
         weights_path=os.path.abspath(args.weights),

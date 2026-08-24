@@ -45,6 +45,10 @@ PATIENCE="${PATIENCE:-5}"
 # GPU before trusting the default. If a smaller batch is forced here, re-run the d=5
 # reference at the same batch so the distance comparison stays controlled.
 BATCH="${BATCH:-10000}"
+# Physical error rate. 0.010 is Exp 10's setting and stays the default.
+# p=0.003 sits below the ~0.0065 threshold, where distance suppresses errors
+# rather than amplifying them, and needs a matching pool.
+P="${P:-0.010}"
 PY="${PY:-python}"
 
 [ -f "$POOL" ] || { echo "missing $POOL -- build it first:"; \
@@ -67,21 +71,21 @@ for s in $SEEDS; do
   out="$OUTROOT/seed${s}"
   echo "=============== [$i/$n] $tag ==============="
   mkdir -p "$out/ckpt"
-  $PY train_one.py --d 9 --p 0.010 --rounds 9 --seed "$s" \
+  $PY train_one.py --d 9 --p "$P" --rounds 9 --seed "$s" \
     --pool "$POOL" \
     --n-train "$NTRAIN" --n-test "$VAL_N" \
     --val-start "$VAL_START" --val-n "$VAL_N" --seal-test \
     --epochs "$EPOCHS" --batch-size "$BATCH" --patience "$PATIENCE" --save-weights \
     --out-dir "$out" --ckpt-dir "$out/ckpt" --run-tag "$tag" 2>&1 \
-    | grep -Ev "cuda_|Unable to register|^Total number|^Number of unique"
+    | grep --line-buffered -Ev "cuda_|Unable to register|^Total number|^Number of unique"
 
   # Re-score the .best checkpoint explicitly. A run's own p_L comes from whatever weights
   # were in memory when fit() returned, which is the restored best only if early stopping
   # fired. Re-scoring one named checkpoint makes the seeds comparable.
   $PY eval_on_tail.py --weights "$out/ckpt/${tag}.best.weights.h5" \
-    --d 9 --p 0.010 --rounds 9 --n-test "$VAL_N" --eval-start "$VAL_START" \
+    --d 9 --p "$P" --rounds 9 --n-test "$VAL_N" --eval-start "$VAL_START" \
     --pool "$POOL" --out-csv "$OUTROOT/val_scores_best_ckpt.csv" 2>&1 \
-    | grep -Ev "cuda_|Unable to register|^Total number|^Number of unique"
+    | grep --line-buffered -Ev "cuda_|Unable to register|^Total number|^Number of unique"
   echo
 done
 
