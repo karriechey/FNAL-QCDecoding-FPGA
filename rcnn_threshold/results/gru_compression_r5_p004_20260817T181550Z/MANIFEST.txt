@@ -1,0 +1,22 @@
+experiment     : GRU parameter reduction + distillation, d=5 r=5 p=0.004
+launched       : 2026-08-17T18:16:04Z  on jupyter-kchey-seed2
+pool           : /scratch/fast/7DayLifetime/kchey/pools_d5_p004_19M/data_d5_p0.004_r5_FORMAL.npz
+training       : [0, 10000000)
+validation     : [15000000, 15200000)
+evaluation     : [15200000, 17000000)
+sealed test    : [17000000, end of pool)   NOT READ
+mwpm (eval blk): 0.007572
+teacher units  : 140   seeds 0 1 2
+student units  : 70 46 34   seeds 0 1 2   modes hard distill
+recipe         : batch=5000 lr=0.003 epochs=50 patience=5 T=1.0
+determinism    : TF_DETERMINISTIC_OPS=1  TF_CUDNN_DETERMINISTIC=1
+eval-block use : scored ONCE after training, from the val_select-best checkpoint.
+                 The evaluation teacher cache is diagnostics-only: it is read
+                 after model.fit returns and feeds the student-teacher agreement
+                 columns alone. No loss, callback, checkpoint monitor, early-stop
+                 criterion or teacher selection reads the evaluation block.
+                 --tail-diagnostics is not passed (guarded at launch).
+code sha       : 24ea84cb93d50d76  train_student.py
+               : e12d3415fb07fdc4  StudentModels.py
+               : 79ea2c96a9e775e2  dump_teacher_probs.py
+               : 397dda8a71a32eec  eaf_run_gru_compression_r5_p004.sh

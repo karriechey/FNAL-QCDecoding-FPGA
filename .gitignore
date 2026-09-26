@@ -42,3 +42,8 @@ PROJECT_NOTES.md
 
 # Raw stdout pasted from EAF runs. Same category as *.log above.
 rcnn_threshold/*.txt
+
+# Editor settings, EAF data pulls, transfer tarballs
+.idea/
+eaf_results/
+gru_compression_p004_code.tgz
